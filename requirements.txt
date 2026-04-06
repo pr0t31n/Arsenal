@@ -1,0 +1,22 @@
+# Arsenal — requirements.txt
+# ─────────────────────────────────────────────────────────────────────────────
+# Arsenal uses only the Python standard library.
+# No pip packages are required.
+#
+# Standard library modules used:
+#   curses        — interactive TUI (selection menu, scrollbar, colour pairs)
+#   json          — GitHub API response parsing
+#   os            — root/euid check, path operations
+#   platform      — OS detection (Linux / Darwin)
+#   re            — VERSION constant extraction from installed app sources
+#   shutil        — directory removal (uninstall), which() for binary detection
+#   subprocess    — git clone/pull, systemctl, launchctl, install.py execution
+#   sys           — Python executable path, exit
+#   urllib        — GitHub REST API requests (no third-party HTTP client needed)
+#   pathlib       — all filesystem path operations
+#   typing        — Optional type hint (Python 3.9 compatibility)
+#
+# Runtime requirements (system-level, not pip):
+#   python3 >= 3.9
+#   git            — required at runtime for clone / pull operations
+#   sudo / root    — required at runtime; Arsenal enforces geteuid() == 0
