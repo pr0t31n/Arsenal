@@ -93,6 +93,16 @@ def run_ok(cmd: list, **kwargs) -> bool:
         return False
 
 
+def _apt_pkg_installed(pkg: str) -> bool:
+    """Return True if pkg is fully installed according to dpkg."""
+    r = subprocess.run(
+        ["dpkg-query", "-W", "--showformat=${Status}", pkg],
+        capture_output=True, text=True,
+    )
+    return "install ok installed" in r.stdout
+
+
+
 # ─── root / admin check ──────────────────────────────────────────────────────
 
 def require_root() -> None:
@@ -182,8 +192,25 @@ def install_system_packages(os_type: str, args) -> None:
     if os_type == "apt":
         info("Running apt update…")
         run(["apt-get", "update", "-y"])
+        # Repair any broken package state (e.g. failed third-party postinst hooks)
+        # before attempting our own installs.
+        info("Repairing broken packages…")
+        subprocess.run(["apt-get", "install", "-f", "-y"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         info("Installing APT packages…")
-        run(["apt-get", "install", "-y"] + APT_PKGS)
+        try:
+            run(["apt-get", "install", "-y"] + APT_PKGS)
+        except RuntimeError:
+            # apt-get can return non-zero even when our packages installed
+            # successfully — a common cause is third-party postinst hook
+            # failures (e.g. sqlmap, commix) that are unrelated to Arsenal.
+            missing = [p for p in APT_PKGS if not _apt_pkg_installed(p)]
+            if missing:
+                raise RuntimeError(
+                    f"apt-get install failed and these packages are missing: {missing}"
+                )
+            warn("apt-get exited non-zero (likely an unrelated postinst hook failure).")
+            warn("All required packages are installed — continuing.")
 
     elif os_type == "dnf":
         info("Installing DNF packages…")
@@ -199,7 +226,7 @@ def install_system_packages(os_type: str, args) -> None:
             run(["apt-get", "update", "-y"])
             run(["apt-get", "install", "-y"] + APT_PKGS)
         except RuntimeError:
-            warn("apt-get failed — install git, python3, python3-curses, and psmisc manually.")
+            warn("apt-get failed — install git, python3, python3-pip, and psmisc manually.")
 
 
 # ─── phase 2: pip packages ───────────────────────────────────────────────────
