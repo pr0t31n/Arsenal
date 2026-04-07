@@ -972,6 +972,40 @@ def _extract_packages_ast(install_dir: Path) -> dict:
     return result
 
 
+
+def _normalise_pkg_item(key: str, item) -> list:
+    """Normalise any package-list entry format to [identifier, description].
+
+    App install.py files use three different formats:
+      • flat string   "flask>=3.0.0"
+      • list/tuple    ["nmap", "network scanner"]
+      • dict          {"pkg": "github.com/.../nuclei@latest", "label": "nuclei"}
+
+    Arsenal phase runners always expect a list/tuple with at least one element.
+    """
+    if isinstance(item, (list, tuple)):
+        return list(item)
+    if isinstance(item, str):
+        return [item, ""]
+    if isinstance(item, dict):
+        if key == "GO_TOOLS":
+            pkg    = item.get("pkg") or item.get("package") or ""
+            binary = (item.get("label") or item.get("binary")
+                      or pkg.split("/")[-1].split("@")[0])
+            return [pkg, binary]
+        if key == "GIT_TOOLS":
+            repo = item.get("repo") or item.get("url") or ""
+            path = item.get("path") or item.get("local_path") or ""
+            deps = item.get("deps") or item.get("pip_deps") or []
+            return [repo, path, deps]
+        # APT/DNF/PIP/BREW — grab first two string values
+        vals = [v for v in item.values() if isinstance(v, str)]
+        if len(vals) >= 2:
+            return vals[:2]
+        return (vals[:1] + [""]) if vals else ["", ""]
+    return [str(item), ""]
+
+
 def _merge_app_phases(app_names: list) -> dict:
     """
     Collect and deduplicate packages from every app in app_names.
@@ -985,11 +1019,11 @@ def _merge_app_phases(app_names: list) -> dict:
         pkgs = _extract_packages_ast(d)
         for key in _PKG_VARS:
             for item in pkgs.get(key, []):
-                # Dedup key = first element (package name / url)
-                dk = item[0] if isinstance(item, (list, tuple)) and item else str(item)
-                if dk not in seen[key]:
+                norm = _normalise_pkg_item(key, item)
+                dk = norm[0] if norm else ""
+                if dk and dk not in seen[key]:
                     seen[key].add(dk)
-                    merged[key].append(item)
+                    merged[key].append(norm)
     return merged
 
 
