@@ -23,8 +23,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
+import ast
+import datetime
+import importlib.util
+import tempfile
 
-VERSION      = "1.1.0"
+VERSION      = "1.2.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -362,14 +366,16 @@ def restart_app(app: dict) -> bool:
             label      = f"com.pr0t31n.{name.lower()}"
             plist_path = Path(f"/Library/LaunchDaemons/{label}.plist")
             if plist_path.exists():
-                subprocess.run(["launchctl", "stop",  label],
+                # Full unload/load cycle — stop/start only suspends the process;
+                # unload removes it from launchd so load re-reads the plist.
+                subprocess.run(["launchctl", "unload", "-w", str(plist_path)],
                                check=False, timeout=10)
-                r = subprocess.run(["launchctl", "start", label],
+                r = subprocess.run(["launchctl", "load",  "-w", str(plist_path)],
                                    check=False, timeout=10)
                 if r.returncode == 0:
-                    ok(f"{name} restarted via launchctl.")
+                    ok(f"{name} restarted via launchctl (unload → load).")
                     return True
-                warn(f"launchctl start {label} failed (code {r.returncode}) "
+                warn(f"launchctl load {plist_path} failed (code {r.returncode}) "
                      "— falling back to process restart.")
         return _process_restart(app)
 
@@ -627,7 +633,8 @@ _CP_UNCKD    = 5   # dim    (not installed, not selected)
 _CP_TO_UNINST= 6   # red    (marked to uninstall)
 _CP_TO_INST  = 7   # bright green (marked to install)
 _CP_EXEC_BTN = 8   # bold green
-_CP_QUIT_BTN = 9   # bold red
+_CP_QUIT_BTN     = 9   # bold red
+_CP_REFRESH_BTN  = 10  # bold cyan
 
 
 def _init_colors() -> None:
@@ -641,7 +648,8 @@ def _init_colors() -> None:
     curses.init_pair(_CP_TO_UNINST, curses.COLOR_RED,    -1)
     curses.init_pair(_CP_TO_INST,   curses.COLOR_GREEN,  -1)
     curses.init_pair(_CP_EXEC_BTN,  curses.COLOR_GREEN,  -1)
-    curses.init_pair(_CP_QUIT_BTN,  curses.COLOR_RED,    -1)
+    curses.init_pair(_CP_QUIT_BTN,     curses.COLOR_RED,    -1)
+    curses.init_pair(_CP_REFRESH_BTN,  curses.COLOR_CYAN,   -1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -673,9 +681,10 @@ def _curses_menu(
     }
 
     # Navigation: rows 0..N-1 = apps, row N = Execute, row N+1 = Quit
-    TOTAL    = N + 2
-    ROW_EXEC = N
-    ROW_QUIT = N + 1
+    ROW_EXEC    = N
+    ROW_REFRESH = N + 1
+    ROW_QUIT    = N + 2
+    TOTAL       = N + 3
     cursor   = 0
     scroll   = 0      # index of first visible app row in viewport
 
@@ -786,15 +795,26 @@ def _curses_menu(
         except curses.error:
             pass
 
-        exec_attr = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                     if cursor == ROW_EXEC
-                     else (curses.color_pair(_CP_EXEC_BTN) | curses.A_BOLD))
-        quit_attr = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                     if cursor == ROW_QUIT
-                     else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD))
+        exec_attr    = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
+                        if cursor == ROW_EXEC
+                        else (curses.color_pair(_CP_EXEC_BTN) | curses.A_BOLD))
+        can_refresh  = any(
+            APPS[i]["flask"] and status[APPS[i]["name"]]["installed"]
+            and desired[APPS[i]["name"]]
+            for i in range(N)
+        )
+        refresh_attr = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
+                        if cursor == ROW_REFRESH
+                        else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD
+                              if can_refresh
+                              else curses.color_pair(_CP_UNCKD) | curses.A_DIM))
+        quit_attr    = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
+                        if cursor == ROW_QUIT
+                        else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD))
         try:
-            stdscr.addstr(fy + 1, 2,  "[ Execute ]", exec_attr)
-            stdscr.addstr(fy + 1, 16, "[ Quit ]",    quit_attr)
+            stdscr.addstr(fy + 1, 2,  "[ Execute ]",  exec_attr)
+            stdscr.addstr(fy + 1, 16, "[ Refresh ]",  refresh_attr)
+            stdscr.addstr(fy + 1, 30, "[ Quit ]",     quit_attr)
         except curses.error:
             pass
 
@@ -802,8 +822,8 @@ def _curses_menu(
             can_restart = (cursor < N and APPS[cursor]["flask"]
                            and status[APPS[cursor]["name"]]["installed"])
             hint = ("  ↑/↓: navigate   SPACE/ENTER: toggle   "
-                    "e: execute   q: quit"
-                    + ("   r: restart" if can_restart else ""))
+                    "e: execute   R: refresh flask   q: quit"
+                    + ("   r: restart this" if can_restart else ""))
             stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
         except curses.error:
             pass
@@ -832,6 +852,16 @@ def _curses_menu(
                 desired[APPS[cursor]["name"]] = not desired[APPS[cursor]["name"]]
             elif cursor == ROW_EXEC:
                 break
+            elif cursor == ROW_REFRESH:
+                _flask_checked = [
+                    APPS[i]["name"] for i in range(N)
+                    if APPS[i]["flask"]
+                    and status[APPS[i]["name"]]["installed"]
+                    and desired[APPS[i]["name"]]
+                ]
+                if _flask_checked:
+                    return {"to_install": [], "to_uninstall": [],
+                            "to_restart": _flask_checked}
             elif cursor == ROW_QUIT:
                 return None
 
@@ -841,7 +871,20 @@ def _curses_menu(
         elif key == ord("q"):
             return None
 
+        elif key == ord("R"):
+            # Bulk refresh — all checked installed Flask apps
+            _flask_checked = [
+                APPS[i]["name"] for i in range(N)
+                if APPS[i]["flask"]
+                and status[APPS[i]["name"]]["installed"]
+                and desired[APPS[i]["name"]]
+            ]
+            if _flask_checked:
+                return {"to_install": [], "to_uninstall": [],
+                        "to_restart": _flask_checked}
+
         elif key == ord("r"):
+            # Single-app restart (cursor position)
             if cursor < N:
                 _app  = APPS[cursor]
                 _name = _app["name"]
@@ -861,6 +904,551 @@ def run_selection_menu(status: dict[str, dict]) -> Optional[dict]:
     """Launch the curses menu, restoring terminal state on any exception."""
     return curses.wrapper(_curses_menu, status)
 
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OS detection
+# ─────────────────────────────────────────────────────────────────────────────
+def detect_os() -> str:
+    """Return one of: 'macos' 'kali' 'ubuntu' 'rhel' 'suse' 'windows' 'linux'"""
+    if SYSTEM == "Darwin":  return "macos"
+    if SYSTEM == "Windows": return "windows"
+    try:
+        txt = Path("/etc/os-release").read_text(errors="ignore").lower()
+        for token, key in [
+            ("kali",     "kali"),
+            ("ubuntu",   "ubuntu"),
+            ("red hat",  "rhel"), ("centos", "rhel"),
+            ("rocky",    "rhel"), ("alma",   "rhel"), ("fedora", "rhel"),
+            ("suse",     "suse"), ("opensuse", "suse"),
+        ]:
+            if token in txt:
+                return key
+    except Exception:
+        pass
+    return "linux"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Package extraction from install.py via AST (no code execution)
+# ─────────────────────────────────────────────────────────────────────────────
+_PKG_VARS = {
+    "APT_PACKAGES", "DNF_PACKAGES", "ZYPPER_PACKAGES",
+    "BREW_PACKAGES", "BREW_CASK_PACKAGES",
+    "PIP_PACKAGES", "GO_TOOLS", "GIT_TOOLS",
+}
+
+
+def _extract_packages_ast(install_dir: Path) -> dict:
+    """Parse an install.py with AST and return its package-list variables."""
+    installer = install_dir / "install.py"
+    if not installer.exists():
+        return {}
+    try:
+        tree = ast.parse(installer.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return {}
+    result: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id in _PKG_VARS:
+                    try:
+                        result[t.id] = ast.literal_eval(node.value)
+                    except Exception:
+                        pass
+    return result
+
+
+def _merge_app_phases(app_names: list) -> dict:
+    """
+    Collect and deduplicate packages from every app in app_names.
+    Returns dict keyed by _PKG_VARS entries.
+    """
+    merged: dict = {k: [] for k in _PKG_VARS}
+    seen:   dict = {k: set() for k in _PKG_VARS}
+
+    for name in app_names:
+        d = INSTALL_BASE / APP_INDEX[name]["repo"]
+        pkgs = _extract_packages_ast(d)
+        for key in _PKG_VARS:
+            for item in pkgs.get(key, []):
+                # Dedup key = first element (package name / url)
+                dk = item[0] if isinstance(item, (list, tuple)) and item else str(item)
+                if dk not in seen[key]:
+                    seen[key].add(dk)
+                    merged[key].append(item)
+    return merged
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Install log (populated by phase runners, consumed by report generator)
+# ─────────────────────────────────────────────────────────────────────────────
+_INSTALL_LOG: list = []   # list[dict]
+
+
+def _log(phase: str, name: str, description: str,
+         success: bool, stdout: str = "", stderr: str = "", error: str = "") -> None:
+    _INSTALL_LOG.append({
+        "phase":       phase,
+        "name":        name,
+        "description": description,
+        "success":     success,
+        "stdout":      stdout,
+        "stderr":      stderr,
+        "error":       error,
+    })
+    sym = f"{_G}[+]{_R}" if success else f"{_RD}[!]{_R}"
+    print(f"  {sym}  {name}  —  {description[:60]}", flush=True)
+    if not success and (stderr or error):
+        snippet = (stderr or error).strip().splitlines()
+        for ln in snippet[-4:]:
+            print(f"      {_RD}{ln}{_R}", flush=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Brew without elevated privileges
+# ─────────────────────────────────────────────────────────────────────────────
+def _brew_cmd(brew: str, *args: str) -> list:
+    """
+    Build a brew command that runs without elevated privileges.
+    If running as root (sudo), drop back to the original user via sudo -u.
+    """
+    sudo_user = os.environ.get("SUDO_USER", "").strip()
+    if os.geteuid() == 0 and sudo_user and sudo_user != "root":
+        return ["sudo", "-u", sudo_user, brew, *args]
+    return [brew, *args]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase runners
+# ─────────────────────────────────────────────────────────────────────────────
+def _phase_system(merged: dict, os_type: str) -> None:
+    """Install system packages via apt / dnf / zypper (Linux) or brew (macOS)."""
+    if os_type == "windows":
+        warn("System package install not supported on Windows — skipping.")
+        return
+
+    if os_type == "macos":
+        brew = shutil.which("brew")
+        if not brew:
+            warn("Homebrew not found — skipping brew phase.")
+            warn("  Install from https://brew.sh then re-run Arsenal.")
+            return
+        print(f"
+{_BLD}── Phase: brew packages ──────────────────────────────{_R}")
+        for item in merged.get("BREW_PACKAGES", []):
+            pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+            if shutil.which(pkg.split("/")[-1]):
+                _log("brew", pkg, desc, True, stdout="already on PATH — skipped")
+                continue
+            try:
+                r = subprocess.run(
+                    _brew_cmd(brew, "install", pkg),
+                    capture_output=True, text=True, timeout=300,
+                )
+                _log("brew", pkg, desc, r.returncode == 0,
+                     stdout=r.stdout, stderr=r.stderr)
+            except Exception as exc:
+                _log("brew", pkg, desc, False, error=str(exc))
+        for item in merged.get("BREW_CASK_PACKAGES", []):
+            pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+            try:
+                r = subprocess.run(
+                    _brew_cmd(brew, "install", "--cask", pkg),
+                    capture_output=True, text=True, timeout=300,
+                )
+                _log("brew-cask", pkg, desc, r.returncode == 0,
+                     stdout=r.stdout, stderr=r.stderr)
+            except Exception as exc:
+                _log("brew-cask", pkg, desc, False, error=str(exc))
+        return
+
+    # ── Linux ────────────────────────────────────────────────────────────────
+    if os_type in ("kali", "ubuntu", "linux"):
+        pm = shutil.which("apt-get") or shutil.which("apt")
+        pkg_list_key = "APT_PACKAGES"
+    elif os_type == "rhel":
+        pm = shutil.which("dnf") or shutil.which("yum")
+        pkg_list_key = "DNF_PACKAGES"
+    elif os_type == "suse":
+        pm = shutil.which("zypper")
+        pkg_list_key = "ZYPPER_PACKAGES"
+    else:
+        pm = shutil.which("apt-get") or shutil.which("apt")
+        pkg_list_key = "APT_PACKAGES"
+
+    if not pm:
+        warn(f"Package manager not found for {os_type} — skipping system phase.")
+        return
+
+    env = os.environ.copy()
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+
+    # apt update + upgrade — once, before any package installs
+    if "apt" in pm:
+        print(f"
+{_BLD}── Phase: apt update + upgrade ───────────────────────{_R}")
+        subprocess.run([pm, "update",  "-qq"], env=env, timeout=120)
+        subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=300)
+
+    print(f"
+{_BLD}── Phase: system packages ({Path(pm).name}) ─────────────{_R}")
+    for item in merged.get(pkg_list_key, []):
+        pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+        try:
+            if "apt" in pm:
+                cmd = [pm, "install", "-y", "-q", pkg,
+                       "-o", "Dpkg::Options::=--force-confold"]
+            elif "dnf" in pm or "yum" in pm:
+                cmd = [pm, "install", "-y", "-q", pkg]
+            else:
+                cmd = [pm, "install", "-y", pkg]
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               env=env, timeout=180)
+            _log("system", pkg, desc, r.returncode == 0,
+                 stdout=r.stdout, stderr=r.stderr)
+        except Exception as exc:
+            _log("system", pkg, desc, False, error=str(exc))
+
+
+def _phase_pip(merged: dict) -> None:
+    print(f"
+{_BLD}── Phase: pip packages ───────────────────────────────{_R}")
+    for item in merged.get("PIP_PACKAGES", []):
+        spec, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet",
+                 "--break-system-packages", spec],
+                capture_output=True, text=True, timeout=180,
+            )
+            _log("pip", spec, desc, r.returncode == 0,
+                 stdout=r.stdout, stderr=r.stderr)
+        except Exception as exc:
+            _log("pip", spec, desc, False, error=str(exc))
+
+
+def _phase_go(merged: dict) -> None:
+    go = shutil.which("go")
+    if not go:
+        warn("go not found — skipping Go phase.")
+        warn("  Install Go: https://go.dev/dl/")
+        return
+    env = os.environ.copy()
+    env.setdefault("HOME",   "/root" if os.geteuid() == 0 else str(Path.home()))
+    env["GOBIN"] = "/usr/local/bin"
+    env.setdefault("GOPATH", str(Path(env["HOME"]) / "go"))
+    print(f"
+{_BLD}── Phase: Go tools ───────────────────────────────────{_R}")
+    for item in merged.get("GO_TOOLS", []):
+        pkg, binary = (item[0], item[1]) if len(item) >= 2 else (item[0], item[0].split("/")[-1].split("@")[0])
+        if shutil.which(binary):
+            _log("go", binary, pkg, True, stdout="already on PATH — skipped")
+            continue
+        try:
+            r = subprocess.run(
+                [go, "install", "-v", pkg],
+                capture_output=True, text=True, env=env, timeout=600,
+            )
+            _log("go", binary, pkg, r.returncode == 0,
+                 stdout=r.stdout, stderr=r.stderr)
+        except subprocess.TimeoutExpired:
+            _log("go", binary, pkg, False, error="go install timed out after 600s")
+        except Exception as exc:
+            _log("go", binary, pkg, False, error=str(exc))
+
+
+def _phase_git(merged: dict) -> None:
+    git = shutil.which("git")
+    if not git:
+        warn("git not found — skipping Git phase.")
+        return
+    print(f"
+{_BLD}── Phase: Git tools ──────────────────────────────────{_R}")
+    for item in merged.get("GIT_TOOLS", []):
+        if len(item) < 2:
+            continue
+        repo_url, local_path = item[0], item[1]
+        pip_deps = item[2] if len(item) >= 3 else []
+        tool_name = Path(local_path).name
+        local = Path(local_path)
+        try:
+            if local.exists():
+                r = subprocess.run(
+                    [git, "-C", str(local), "pull", "--ff-only"],
+                    capture_output=True, text=True, timeout=120,
+                )
+                _log("git", tool_name, f"update {repo_url}", r.returncode == 0,
+                     stdout=r.stdout, stderr=r.stderr)
+            else:
+                local.parent.mkdir(parents=True, exist_ok=True)
+                r = subprocess.run(
+                    [git, "clone", "--depth=1", repo_url, str(local)],
+                    capture_output=True, text=True, timeout=300,
+                )
+                _log("git", tool_name, f"clone {repo_url}", r.returncode == 0,
+                     stdout=r.stdout, stderr=r.stderr)
+                if r.returncode != 0:
+                    continue
+        except Exception as exc:
+            _log("git", tool_name, repo_url, False, error=str(exc))
+            continue
+        # pip deps for this git tool
+        for dep in (pip_deps or []):
+            try:
+                r2 = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--quiet",
+                     "--break-system-packages", dep],
+                    capture_output=True, text=True, timeout=120,
+                )
+                _log("pip", dep, f"dep for {tool_name}", r2.returncode == 0,
+                     stdout=r2.stdout, stderr=r2.stderr)
+            except Exception as exc2:
+                _log("pip", dep, f"dep for {tool_name}", False, error=str(exc2))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phased installer (replaces per-app _run_install_py for installs)
+# ─────────────────────────────────────────────────────────────────────────────
+def install_apps_phased(app_names: list) -> None:
+    """
+    Install one or more apps using a combined phased approach:
+      apt/dnf/zypper (once) → brew → pip → go → git
+    Packages are merged and deduplicated across all apps before execution.
+    """
+    _INSTALL_LOG.clear()
+    os_type = detect_os()
+    info(f"Detected OS: {os_type}")
+
+    # Step 1: clone / pull all repos first
+    for name in app_names:
+        app         = APP_INDEX[name]
+        install_dir = INSTALL_BASE / app["repo"]
+        INSTALL_BASE.mkdir(parents=True, exist_ok=True)
+        if install_dir.is_dir():
+            info(f"{name} already present — pulling latest…")
+            subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                           capture_output=True)
+        else:
+            info(f"Cloning {app['github_url']}  →  {install_dir}")
+            r = subprocess.run(
+                ["git", "clone", "--depth=1", app["github_url"], str(install_dir)],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                err(f"Clone failed for {name}: {r.stderr.strip()[:120]}")
+                _log("git", name, f"clone {app['github_url']}", False,
+                     stderr=r.stderr, error="git clone failed")
+
+    # Step 2: merge packages from all app installers
+    info("Parsing install.py files and merging package lists…")
+    merged = _merge_app_phases(app_names)
+
+    total = sum(len(merged[k]) for k in _PKG_VARS)
+    info(f"Total unique dependencies across {len(app_names)} app(s): {total}")
+
+    # Step 3: run phases in order
+    _phase_system(merged, os_type)
+    if os_type != "macos":
+        # brew was handled inside _phase_system for macOS; on Linux brew is rare
+        pass
+    _phase_pip(merged)
+    _phase_go(merged)
+    _phase_git(merged)
+
+    # Step 4: run any app-specific post-install steps via install.py
+    for name in app_names:
+        install_dir = INSTALL_BASE / APP_INDEX[name]["repo"]
+        installer   = install_dir / "install.py"
+        if installer.exists():
+            info(f"Running post-install steps from {name}/install.py…")
+            try:
+                r = subprocess.run(
+                    [sys.executable, str(installer),
+                     "--skip-apt", "--skip-pip", "--skip-go", "--skip-git"],
+                    cwd=str(install_dir),
+                    capture_output=True, text=True, timeout=300,
+                )
+                if r.returncode == 0:
+                    ok(f"{name} post-install complete.")
+                else:
+                    warn(f"{name} post-install returned {r.returncode}.")
+                    if r.stderr:
+                        print(f"  {_Y}{r.stderr.strip()[:200]}{_R}")
+            except subprocess.TimeoutExpired:
+                warn(f"{name} post-install timed out.")
+            except Exception as exc:
+                warn(f"{name} post-install error: {exc}")
+
+    ok(f"Phased install complete for: {', '.join(app_names)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Installation report (Word .docx + plain-text fallback)
+# ─────────────────────────────────────────────────────────────────────────────
+def _report_path(ext: str) -> Path:
+    ts   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    home = Path(os.path.expanduser("~"))
+    return home / f"arsenal_install_report_{ts}.{ext}"
+
+
+def _write_text_report(log: list, to_install: list,
+                        to_uninstall: list, to_restart: list) -> Path:
+    path = _report_path("txt")
+    now  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ok_n  = sum(1 for e in log if e["success"])
+    fail_n = sum(1 for e in log if not e["success"])
+
+    lines = [
+        "=" * 70,
+        "  ARSENAL INSTALLATION REPORT",
+        f"  Generated : {now}",
+        f"  Platform  : {SYSTEM} — {detect_os()}",
+        f"  Installed : {', '.join(to_install)  or '(none)'}",
+        f"  Uninstalled: {', '.join(to_uninstall) or '(none)'}",
+        f"  Refreshed : {', '.join(to_restart)  or '(none)'}",
+        "=" * 70,
+        "",
+        f"  Total dependencies attempted: {len(log)}",
+        f"  Successful : {ok_n}",
+        f"  Failed     : {fail_n}",
+        "",
+    ]
+    phases_seen: list = []
+    for entry in log:
+        ph = entry["phase"]
+        if ph not in phases_seen:
+            phases_seen.append(ph)
+            lines += ["", f"── Phase: {ph} " + "─" * (50 - len(ph))]
+        sym = "[+]" if entry["success"] else "[!]"
+        lines.append(f"  {sym}  {entry['name']}  —  {entry['description']}")
+
+    if fail_n:
+        lines += ["", "=" * 70, "  FAILURES", "=" * 70, ""]
+        idx = 1
+        for entry in log:
+            if entry["success"]:
+                continue
+            lines += [
+                f"  {idx}. Phase: {entry['phase']}  |  Package: {entry['name']}",
+                f"     Description: {entry['description']}",
+            ]
+            if entry["error"]:
+                lines.append(f"     Error: {entry['error']}")
+            if entry["stderr"]:
+                for ln in entry["stderr"].strip().splitlines()[-20:]:
+                    lines.append(f"     | {ln}")
+            lines.append("")
+            idx += 1
+
+    path.write_text("
+".join(lines), encoding="utf-8")
+    return path
+
+
+def _write_docx_report(log: list, to_install: list,
+                        to_uninstall: list, to_restart: list) -> Path:
+    from docx import Document                           # type: ignore
+    from docx.shared import Pt, RGBColor                # type: ignore
+    from docx.enum.text import WD_ALIGN_PARAGRAPH       # type: ignore
+
+    doc  = Document()
+    now  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ok_n  = sum(1 for e in log if e["success"])
+    fail_n = sum(1 for e in log if not e["success"])
+
+    # ── Title ─────────────────────────────────────────────────────────────────
+    title = doc.add_heading("Arsenal Installation Report", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_paragraph(f"Generated:    {now}")
+    doc.add_paragraph(f"Platform:     {SYSTEM} — {detect_os()}")
+    doc.add_paragraph(f"Installed:    {', '.join(to_install)  or '(none)'}")
+    doc.add_paragraph(f"Uninstalled:  {', '.join(to_uninstall) or '(none)'}")
+    doc.add_paragraph(f"Refreshed:    {', '.join(to_restart)  or '(none)'}")
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    doc.add_heading("Summary", level=1)
+    tbl = doc.add_table(rows=4, cols=2)
+    tbl.style = "Table Grid"
+    for row, label, val in [
+        (0, "Total dependencies attempted", str(len(log))),
+        (1, "Successful",                   str(ok_n)),
+        (2, "Failed",                        str(fail_n)),
+        (3, "Pass rate",
+            f"{100*ok_n//len(log)}%" if log else "N/A"),
+    ]:
+        tbl.rows[row].cells[0].text = label
+        cell = tbl.rows[row].cells[1]
+        cell.text = val
+        if row in (2, 3) and fail_n > 0:
+            for run in cell.paragraphs[0].runs:
+                run.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+
+    # ── Detailed results ──────────────────────────────────────────────────────
+    doc.add_heading("Detailed Results", level=1)
+    phases_seen: list = []
+    for entry in log:
+        ph = entry["phase"]
+        if ph not in phases_seen:
+            phases_seen.append(ph)
+            doc.add_heading(f"Phase: {ph}", level=2)
+        p   = doc.add_paragraph(style="List Bullet")
+        sym = "✓" if entry["success"] else "✗"
+        run = p.add_run(f"{sym}  {entry['name']}")
+        run.bold = True
+        run.font.color.rgb = (RGBColor(0x00, 0x70, 0x00) if entry["success"]
+                               else RGBColor(0xC0, 0x00, 0x00))
+        if entry["description"]:
+            p.add_run(f"  —  {entry['description']}")
+
+    # ── Failures summary ──────────────────────────────────────────────────────
+    if fail_n:
+        doc.add_heading("Failures Detail", level=1)
+        idx = 1
+        for entry in log:
+            if entry["success"]:
+                continue
+            doc.add_heading(f"{idx}. {entry['name']}  [{entry['phase']}]", level=2)
+            if entry["description"]:
+                doc.add_paragraph(f"Description: {entry['description']}")
+            if entry["error"]:
+                doc.add_paragraph(f"Error: {entry['error']}")
+            if entry["stderr"]:
+                snippet = "
+".join(entry["stderr"].strip().splitlines()[-30:])
+                p = doc.add_paragraph(style="No Spacing")
+                run = p.add_run(snippet)
+                run.font.name = "Courier New"
+                run.font.size = Pt(8)
+            idx += 1
+
+    path = _report_path("docx")
+    doc.save(str(path))
+    return path
+
+
+def generate_report(log: list, to_install: list,
+                    to_uninstall: list, to_restart: list) -> None:
+    """Generate installation report; .docx preferred, .txt fallback."""
+    if not log:
+        return
+    try:
+        import docx  # noqa: F401 — probe only
+        path = _write_docx_report(log, to_install, to_uninstall, to_restart)
+        ok(f"Installation report (Word): {path}")
+    except ImportError:
+        warn("python-docx not installed — writing plain-text report.")
+        warn("  To enable Word reports: pip install python-docx"
+             " --break-system-packages")
+        path = _write_text_report(log, to_install, to_uninstall, to_restart)
+        ok(f"Installation report (text): {path}")
+    except Exception as exc:
+        warn(f"Report generation error: {exc} — writing plain-text fallback.")
+        path = _write_text_report(log, to_install, to_uninstall, to_restart)
+        ok(f"Installation report (text): {path}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Execute selected changes
@@ -917,12 +1505,15 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
         return
 
     print()
-    for name in to_install:
+    # ── Installs — phased across all selected apps ──────────────────────
+    if to_install:
+        _INSTALL_LOG.clear()
+        print(f"\n{_BLD}{'─' * 50}{_R}")
+        print(f"{_BLD}  Installing (phased): {', '.join(to_install)}{_R}")
         print(f"{_BLD}{'─' * 50}{_R}")
-        print(f"{_BLD}  Installing {name}{_R}")
-        print(f"{_BLD}{'─' * 50}{_R}")
-        install_app(APP_INDEX[name])
+        install_apps_phased(to_install)
         print()
+        generate_report(_INSTALL_LOG, to_install, to_uninstall, to_restart)
 
     for name in to_uninstall:
         print(f"{_BLD}{'─' * 50}{_R}")

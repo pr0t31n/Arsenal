@@ -1,22 +1,33 @@
 # Arsenal — requirements.txt
 # ─────────────────────────────────────────────────────────────────────────────
-# Arsenal uses only the Python standard library.
-# No pip packages are required.
+# Arsenal uses the Python standard library plus one optional pip package.
+#
+# Optional pip package (enables Word .docx installation reports):
+python-docx>=1.1.0
+#
+# Windows only (curses is not bundled with CPython on Windows):
+# windows-curses>=2.3.0
 #
 # Standard library modules used:
-#   curses        — interactive TUI (selection menu, scrollbar, colour pairs)
-#   json          — GitHub API response parsing
-#   os            — root/euid check, path operations
-#   platform      — OS detection (Linux / Darwin)
-#   re            — VERSION constant extraction from installed app sources
-#   shutil        — directory removal (uninstall), which() for binary detection
-#   subprocess    — git clone/pull, systemctl, launchctl, install.py execution
-#   sys           — Python executable path, exit
-#   urllib        — GitHub REST API requests (no third-party HTTP client needed)
-#   pathlib       — all filesystem path operations
-#   typing        — Optional type hint (Python 3.9 compatibility)
+#   ast            — safe AST parsing of app install.py files (v1.2.0+)
+#   curses         — interactive TUI (selection menu, scrollbar, colour pairs)
+#   datetime       — installation report timestamps (v1.2.0+)
+#   importlib.util — dynamic module availability checks (v1.2.0+)
+#   json           — GitHub API response parsing
+#   os             — root/euid check, path operations
+#   platform       — OS detection (Linux / Darwin / Windows)
+#   re             — VERSION constant extraction from installed app sources
+#   shutil         — directory removal (uninstall), which() for binary detection
+#   subprocess     — git clone/pull, systemctl, launchctl, install.py execution
+#   sys            — Python executable path, exit
+#   tempfile       — temporary files for phased install (v1.2.0+)
+#   urllib         — GitHub REST API requests (no third-party HTTP client needed)
+#   pathlib        — all filesystem path operations
+#   typing         — Optional type hint (Python 3.9 compatibility)
 #
 # Runtime requirements (system-level, not pip):
 #   python3 >= 3.9
 #   git            — required at runtime for clone / pull operations
 #   sudo / root    — required at runtime; Arsenal enforces geteuid() == 0
+#   fuser          — Linux: kill process on a port (package: psmisc)
+#   lsof           — macOS: find PIDs listening on a port (pre-installed on macOS)
