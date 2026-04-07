@@ -46,7 +46,7 @@ SYSTEM   = platform.system()
 
 # ── system package lists ──────────────────────────────────────────────────────
 # python3-curses: curses TUI  |  psmisc: provides fuser (port killing on Linux)
-APT_PKGS    = ["git", "python3", "python3-pip", "python3-curses", "psmisc"]
+APT_PKGS    = ["git", "python3", "python3-pip", "psmisc"]
 DNF_PKGS    = ["git", "python3", "python3-pip", "python3-curses", "psmisc"]
 ZYPPER_PKGS = ["git", "python3", "python3-pip", "python3-curses", "psmisc"]
 BREW_PKGS   = ["git"]   # curses/lsof are pre-installed on macOS; python3 via Xcode/brew

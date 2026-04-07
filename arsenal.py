@@ -174,6 +174,17 @@ APPS: list[dict] = [
         "service":     None,
         "requires":    [],
     },
+    {
+        "name":        "Nexus",
+        "repo":        "Nexus",
+        "github_url":  "https://github.com/pr0t31n/Nexus.git",
+        "description": "Central hub — discovers and monitors all pr0t31n and third-party security tool instances across every network interface in real time.",
+        "port":        5400,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-nexus",
+        "requires":    [],
+    },
 ]
 
 APP_INDEX: dict[str, dict] = {a["name"]: a for a in APPS}
@@ -1036,8 +1047,7 @@ def _phase_system(merged: dict, os_type: str) -> None:
             warn("Homebrew not found — skipping brew phase.")
             warn("  Install from https://brew.sh then re-run Arsenal.")
             return
-        print(f"
-{_BLD}── Phase: brew packages ──────────────────────────────{_R}")
+        print(f"\n{_BLD}── Phase: brew packages ──────────────────────────────{_R}")
         for item in merged.get("BREW_PACKAGES", []):
             pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
             if shutil.which(pkg.split("/")[-1]):
@@ -1088,13 +1098,11 @@ def _phase_system(merged: dict, os_type: str) -> None:
 
     # apt update + upgrade — once, before any package installs
     if "apt" in pm:
-        print(f"
-{_BLD}── Phase: apt update + upgrade ───────────────────────{_R}")
+        print(f"\n{_BLD}── Phase: apt update + upgrade ───────────────────────{_R}")
         subprocess.run([pm, "update",  "-qq"], env=env, timeout=120)
         subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=300)
 
-    print(f"
-{_BLD}── Phase: system packages ({Path(pm).name}) ─────────────{_R}")
+    print(f"\n{_BLD}── Phase: system packages ({Path(pm).name}) ─────────────{_R}")
     for item in merged.get(pkg_list_key, []):
         pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
         try:
@@ -1114,8 +1122,7 @@ def _phase_system(merged: dict, os_type: str) -> None:
 
 
 def _phase_pip(merged: dict) -> None:
-    print(f"
-{_BLD}── Phase: pip packages ───────────────────────────────{_R}")
+    print(f"\n{_BLD}── Phase: pip packages ───────────────────────────────{_R}")
     for item in merged.get("PIP_PACKAGES", []):
         spec, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
         try:
@@ -1140,8 +1147,7 @@ def _phase_go(merged: dict) -> None:
     env.setdefault("HOME",   "/root" if os.geteuid() == 0 else str(Path.home()))
     env["GOBIN"] = "/usr/local/bin"
     env.setdefault("GOPATH", str(Path(env["HOME"]) / "go"))
-    print(f"
-{_BLD}── Phase: Go tools ───────────────────────────────────{_R}")
+    print(f"\n{_BLD}── Phase: Go tools ───────────────────────────────────{_R}")
     for item in merged.get("GO_TOOLS", []):
         pkg, binary = (item[0], item[1]) if len(item) >= 2 else (item[0], item[0].split("/")[-1].split("@")[0])
         if shutil.which(binary):
@@ -1165,8 +1171,7 @@ def _phase_git(merged: dict) -> None:
     if not git:
         warn("git not found — skipping Git phase.")
         return
-    print(f"
-{_BLD}── Phase: Git tools ──────────────────────────────────{_R}")
+    print(f"\n{_BLD}── Phase: Git tools ──────────────────────────────────{_R}")
     for item in merged.get("GIT_TOOLS", []):
         if len(item) < 2:
             continue
@@ -1343,8 +1348,7 @@ def _write_text_report(log: list, to_install: list,
             lines.append("")
             idx += 1
 
-    path.write_text("
-".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
 
@@ -1417,8 +1421,7 @@ def _write_docx_report(log: list, to_install: list,
             if entry["error"]:
                 doc.add_paragraph(f"Error: {entry['error']}")
             if entry["stderr"]:
-                snippet = "
-".join(entry["stderr"].strip().splitlines()[-30:])
+                snippet = "\n".join(entry["stderr"].strip().splitlines()[-30:])
                 p = doc.add_paragraph(style="No Spacing")
                 run = p.add_run(snippet)
                 run.font.name = "Courier New"
