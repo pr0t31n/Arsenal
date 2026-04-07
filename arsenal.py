@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-VERSION      = "1.0.0"
+VERSION      = "1.1.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -274,6 +274,107 @@ def get_service_status(app: dict) -> str:
     except Exception:
         pass
     return "unknown"
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Restart helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def _kill_port(port: int) -> None:
+    """Kill any process currently listening on the given TCP port."""
+    try:
+        if SYSTEM == "Linux":
+            subprocess.run(
+                ["fuser", "-k", f"{port}/tcp"],
+                capture_output=True, timeout=5, check=False,
+            )
+        elif SYSTEM == "Darwin":
+            r = subprocess.run(
+                ["lsof", "-ti", f"tcp:{port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for pid in r.stdout.strip().splitlines():
+                pid = pid.strip()
+                if pid.isdigit():
+                    subprocess.run(["kill", "-9", pid], check=False, timeout=3)
+    except Exception:
+        pass
+
+
+def _process_restart(app: dict) -> bool:
+    """Kill the process on app's port and spawn a fresh instance in the background."""
+    port        = app.get("port")
+    install_dir = INSTALL_BASE / app["repo"]
+    app_script  = install_dir / "app.py"
+
+    if not app_script.exists():
+        err(f"{app['name']}: app.py not found at {app_script} — cannot restart")
+        return False
+
+    if port:
+        _kill_port(port)
+
+    try:
+        subprocess.Popen(
+            [sys.executable, str(app_script)],
+            cwd=str(install_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        ok(f"{app['name']} spawned (port {port}).")
+        return True
+    except Exception as exc:
+        err(f"Failed to spawn {app['name']}: {exc}")
+        return False
+
+
+def restart_app(app: dict) -> bool:
+    """
+    Restart a Flask web application.
+
+    On Linux uses systemctl restart when a unit file exists; falls back to
+    process-level kill + spawn when the service is not registered.
+    On macOS uses launchctl stop/start when a plist exists; same fallback.
+    """
+    svc  = app.get("service")
+    name = app["name"]
+    port = app.get("port")
+    info(f"Restarting {name}…")
+
+    if SYSTEM == "Linux":
+        if svc:
+            svc_file = Path(f"/etc/systemd/system/{svc}.service")
+            if svc_file.exists():
+                r = subprocess.run(
+                    ["systemctl", "restart", svc],
+                    check=False, timeout=20,
+                )
+                if r.returncode == 0:
+                    ok(f"{name} restarted via systemctl.")
+                    return True
+                warn(f"systemctl restart {svc} failed (code {r.returncode}) "
+                     "— falling back to process restart.")
+        return _process_restart(app)
+
+    if SYSTEM == "Darwin":
+        if svc:
+            label      = f"com.pr0t31n.{name.lower()}"
+            plist_path = Path(f"/Library/LaunchDaemons/{label}.plist")
+            if plist_path.exists():
+                subprocess.run(["launchctl", "stop",  label],
+                               check=False, timeout=10)
+                r = subprocess.run(["launchctl", "start", label],
+                                   check=False, timeout=10)
+                if r.returncode == 0:
+                    ok(f"{name} restarted via launchctl.")
+                    return True
+                warn(f"launchctl start {label} failed (code {r.returncode}) "
+                     "— falling back to process restart.")
+        return _process_restart(app)
+
+    err(f"Unsupported platform for restart: {SYSTEM}")
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -698,8 +799,11 @@ def _curses_menu(
             pass
 
         try:
+            can_restart = (cursor < N and APPS[cursor]["flask"]
+                           and status[APPS[cursor]["name"]]["installed"])
             hint = ("  ↑/↓: navigate   SPACE/ENTER: toggle   "
-                    "e: execute   q: quit")
+                    "e: execute   q: quit"
+                    + ("   r: restart" if can_restart else ""))
             stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
         except curses.error:
             pass
@@ -737,6 +841,14 @@ def _curses_menu(
         elif key == ord("q"):
             return None
 
+        elif key == ord("r"):
+            if cursor < N:
+                _app  = APPS[cursor]
+                _name = _app["name"]
+                if _app["flask"] and status[_name]["installed"]:
+                    return {"to_install": [], "to_uninstall": [],
+                            "to_restart": [_name]}
+
     # Build result lists
     to_install   = [n for n, d in desired.items()
                     if d and not status[n]["installed"]]
@@ -756,9 +868,21 @@ def run_selection_menu(status: dict[str, dict]) -> Optional[dict]:
 def execute_changes(selection: dict, status: dict[str, dict]) -> None:
     to_install   = selection.get("to_install",   [])
     to_uninstall = selection.get("to_uninstall", [])
+    to_restart   = selection.get("to_restart",   [])
 
-    if not to_install and not to_uninstall:
+    if not to_install and not to_uninstall and not to_restart:
         info("No changes selected.")
+        return
+
+    # Pure restart — skip install/uninstall confirmation
+    if to_restart and not to_install and not to_uninstall:
+        for name in to_restart:
+            print(f"{_BLD}{'─' * 50}{_R}")
+            print(f"{_BLD}  Restarting {name}{_R}")
+            print(f"{_BLD}{'─' * 50}{_R}")
+            restart_app(APP_INDEX[name])
+            print()
+        ok("All operations complete.")
         return
 
     to_install, to_uninstall = resolve_dependencies(to_install, to_uninstall, status)
@@ -774,6 +898,11 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
         print(f"\n{_BLD}To uninstall:{_R}")
         for name in to_uninstall:
             print(f"  {_RD}-{_R}  {name}")
+
+    if to_restart:
+        print(f"\n{_BLD}To restart:{_R}")
+        for name in to_restart:
+            print(f"  {_C}↻{_R}  {name}")
 
     print()
     try:
@@ -800,6 +929,13 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
         print(f"{_BLD}  Uninstalling {name}{_R}")
         print(f"{_BLD}{'─' * 50}{_R}")
         uninstall_app(APP_INDEX[name])
+        print()
+
+    for name in to_restart:
+        print(f"{_BLD}{'─' * 50}{_R}")
+        print(f"{_BLD}  Restarting {name}{_R}")
+        print(f"{_BLD}{'─' * 50}{_R}")
+        restart_app(APP_INDEX[name])
         print()
 
     ok("All operations complete.")
