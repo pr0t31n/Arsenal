@@ -27,6 +27,9 @@ import ast
 import datetime
 import importlib.util
 import tempfile
+import itertools
+import threading
+import time
 
 VERSION      = "1.2.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
@@ -1053,6 +1056,52 @@ def _log(phase: str, name: str, description: str,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Spinner helper — shows progress while a subprocess runs
+# ─────────────────────────────────────────────────────────────────────────────
+_SPINNER_FRAMES = ["|", "/", "-", "\\"]
+
+
+def _spin_run(label: str, cmd: list, **kwargs):
+    """Run *cmd* in a background thread while spinning a progress indicator.
+
+    On non-TTY outputs (pipes, files) falls back to a plain subprocess.run so
+    logs stay clean.  Raises whatever the subprocess raises (including
+    subprocess.TimeoutExpired) so callers' existing except blocks still fire.
+    """
+    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    if not is_tty:
+        return subprocess.run(cmd, **kwargs)
+
+    result_box: list = [None]
+    error_box:  list = [None]
+
+    def _worker():
+        try:
+            result_box[0] = subprocess.run(cmd, **kwargs)
+        except Exception as exc:
+            error_box[0] = exc
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+    label_s = label[:55]
+    frames  = itertools.cycle(_SPINNER_FRAMES)
+    while t.is_alive():
+        sys.stdout.write(f"\r  {_C}[{next(frames)}]{_R}  {label_s}")
+        sys.stdout.flush()
+        time.sleep(0.1)
+
+    # Erase the spinner line; _log() will print the final status on this line.
+    sys.stdout.write(f"\r{' ' * 80}\r")
+    sys.stdout.flush()
+    t.join()
+
+    if error_box[0] is not None:
+        raise error_box[0]
+    return result_box[0]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Brew without elevated privileges
 # ─────────────────────────────────────────────────────────────────────────────
 def _brew_cmd(brew: str, *args: str) -> list:
@@ -1088,10 +1137,8 @@ def _phase_system(merged: dict, os_type: str) -> None:
                 _log("brew", pkg, desc, True, stdout="already on PATH — skipped")
                 continue
             try:
-                r = subprocess.run(
-                    _brew_cmd(brew, "install", pkg),
-                    capture_output=True, text=True, timeout=300,
-                )
+                r = _spin_run(pkg, _brew_cmd(brew, "install", pkg),
+                             capture_output=True, text=True, timeout=300)
                 _log("brew", pkg, desc, r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             except Exception as exc:
@@ -1099,10 +1146,8 @@ def _phase_system(merged: dict, os_type: str) -> None:
         for item in merged.get("BREW_CASK_PACKAGES", []):
             pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
             try:
-                r = subprocess.run(
-                    _brew_cmd(brew, "install", "--cask", pkg),
-                    capture_output=True, text=True, timeout=300,
-                )
+                r = _spin_run(pkg, _brew_cmd(brew, "install", "--cask", pkg),
+                             capture_output=True, text=True, timeout=300)
                 _log("brew-cask", pkg, desc, r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             except Exception as exc:
@@ -1147,8 +1192,8 @@ def _phase_system(merged: dict, os_type: str) -> None:
                 cmd = [pm, "install", "-y", "-q", pkg]
             else:
                 cmd = [pm, "install", "-y", pkg]
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               env=env, timeout=180)
+            r = _spin_run(pkg, cmd, capture_output=True, text=True,
+                         env=env, timeout=180)
             _log("system", pkg, desc, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
         except Exception as exc:
@@ -1160,11 +1205,10 @@ def _phase_pip(merged: dict) -> None:
     for item in merged.get("PIP_PACKAGES", []):
         spec, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
         try:
-            r = subprocess.run(
+            r = _spin_run(spec,
                 [sys.executable, "-m", "pip", "install", "--quiet",
                  "--break-system-packages", spec],
-                capture_output=True, text=True, timeout=180,
-            )
+                capture_output=True, text=True, timeout=180)
             _log("pip", spec, desc, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
         except Exception as exc:
@@ -1188,10 +1232,9 @@ def _phase_go(merged: dict) -> None:
             _log("go", binary, pkg, True, stdout="already on PATH — skipped")
             continue
         try:
-            r = subprocess.run(
+            r = _spin_run(binary,
                 [go, "install", "-v", pkg],
-                capture_output=True, text=True, env=env, timeout=600,
-            )
+                capture_output=True, text=True, env=env, timeout=600)
             _log("go", binary, pkg, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
         except subprocess.TimeoutExpired:
@@ -1215,18 +1258,16 @@ def _phase_git(merged: dict) -> None:
         local = Path(local_path)
         try:
             if local.exists():
-                r = subprocess.run(
+                r = _spin_run(tool_name,
                     [git, "-C", str(local), "pull", "--ff-only"],
-                    capture_output=True, text=True, timeout=120,
-                )
+                    capture_output=True, text=True, timeout=120)
                 _log("git", tool_name, f"update {repo_url}", r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             else:
                 local.parent.mkdir(parents=True, exist_ok=True)
-                r = subprocess.run(
+                r = _spin_run(tool_name,
                     [git, "clone", "--depth=1", repo_url, str(local)],
-                    capture_output=True, text=True, timeout=300,
-                )
+                    capture_output=True, text=True, timeout=300)
                 _log("git", tool_name, f"clone {repo_url}", r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
                 if r.returncode != 0:
@@ -1237,11 +1278,10 @@ def _phase_git(merged: dict) -> None:
         # pip deps for this git tool
         for dep in (pip_deps or []):
             try:
-                r2 = subprocess.run(
+                r2 = _spin_run(dep,
                     [sys.executable, "-m", "pip", "install", "--quiet",
                      "--break-system-packages", dep],
-                    capture_output=True, text=True, timeout=120,
-                )
+                    capture_output=True, text=True, timeout=120)
                 _log("pip", dep, f"dep for {tool_name}", r2.returncode == 0,
                      stdout=r2.stdout, stderr=r2.stderr)
             except Exception as exc2:
