@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.3.0"
+VERSION      = "1.4.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -312,6 +312,39 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-nexus",
         "requires":    [],
+    },
+    {
+        "name":        "Fracture",
+        "repo":        "Fracture",
+        "github_url":  "https://github.com/pr0t31n/Fracture.git",
+        "description": "Multi-phase web application pentest orchestrator — OWASP Top 10 2025 coverage: injection, auth bypass, IDOR, SSRF, CSRF, session attacks, and sensitive file exposure.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "fracture.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Siphon",
+        "repo":        "Siphon",
+        "github_url":  "https://github.com/pr0t31n/Siphon.git",
+        "description": "Multi-phase API pentest orchestrator — OWASP API Top 10 2023 coverage: BOLA, BFLA, mass assignment, JWT attacks, rate limit bypass, and data exposure testing.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "siphon.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Crucible",
+        "repo":        "Crucible",
+        "github_url":  "https://github.com/pr0t31n/Crucible.git",
+        "description": "Web app and API pentest platform — orchestrates Fracture and Siphon in a unified session-managed dashboard with live findings streaming.",
+        "port":        5500,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-crucible",
+        "requires":    ["Fracture", "Siphon"],
     },
 ]
 
