@@ -1354,12 +1354,35 @@ def install_apps_phased(app_names: list) -> None:
                     ok(f"{name} post-install complete.")
                 else:
                     warn(f"{name} post-install returned {r.returncode}.")
+                    # Combine stdout + stderr so nothing is lost; show last 30 lines
+                    combined = []
+                    if r.stdout:
+                        combined += r.stdout.strip().splitlines()
                     if r.stderr:
-                        print(f"  {_Y}{r.stderr.strip()[:200]}{_R}")
+                        combined += r.stderr.strip().splitlines()
+                    for ln in combined[-30:]:
+                        print(f"    {_Y}{ln}{_R}", flush=True)
             except subprocess.TimeoutExpired:
                 warn(f"{name} post-install timed out.")
             except Exception as exc:
                 warn(f"{name} post-install error: {exc}")
+
+    # Step 5: start services for newly installed apps (Linux / systemd only)
+    if shutil.which("systemctl") and os_type not in ("macos", "windows"):
+        for name in app_names:
+            svc = APP_INDEX[name].get("service")
+            if not svc:
+                continue
+            info(f"Starting {svc}…")
+            rs = subprocess.run(["systemctl", "start", svc],
+                                capture_output=True, text=True)
+            if rs.returncode == 0:
+                ok(f"{svc} started.")
+            else:
+                warn(f"systemctl start {svc} returned {rs.returncode}.")
+                if rs.stderr:
+                    for ln in rs.stderr.strip().splitlines()[-6:]:
+                        print(f"    {_Y}{ln}{_R}", flush=True)
 
     ok(f"Phased install complete for: {', '.join(app_names)}")
 
