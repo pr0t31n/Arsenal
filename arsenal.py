@@ -30,6 +30,8 @@ import tempfile
 import itertools
 import threading
 import time
+import shlex
+import atexit
 
 VERSION      = "1.2.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
@@ -45,6 +47,94 @@ _RD  = "\033[31m"
 _C   = "\033[36m"
 _BLD = "\033[1m"
 _DIM = "\033[2m"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub credential cache (session-scoped — prompted once, reused everywhere)
+# ─────────────────────────────────────────────────────────────────────────────
+_GH_CREDS: dict        = {"user": "", "token": ""}
+_ASKPASS_PATH: list    = [None]   # mutable box so atexit can see it
+
+
+def _ensure_gh_creds() -> None:
+    """Prompt for GitHub credentials once; no-op if already cached."""
+    if _GH_CREDS["token"]:
+        return
+    print(f"\n{_BLD}GitHub credentials{_R}  "
+          "(for private repos — press Enter to skip)")
+    try:
+        user  = input("  Username: ").strip()
+        token = input("  Personal Access Token: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    _GH_CREDS["user"]  = user
+    _GH_CREDS["token"] = token
+    # Invalidate any existing askpass script so it gets rebuilt with new creds
+    _ASKPASS_PATH[0] = None
+
+
+def _create_askpass() -> Optional[str]:
+    """Write a GIT_ASKPASS helper to /tmp (once) and return its path."""
+    token = _GH_CREDS.get("token", "")
+    if not token:
+        return None
+    if _ASKPASS_PATH[0] and Path(_ASKPASS_PATH[0]).exists():
+        return _ASKPASS_PATH[0]
+    try:
+        fd, path = tempfile.mkstemp(suffix=".sh", prefix="arsenal_ask_")
+        with os.fdopen(fd, "w") as f:
+            f.write("#!/bin/sh\n")
+            f.write("case \"$1\" in\n")
+            f.write(f"  Username*) echo {shlex.quote(_GH_CREDS['user'])} ;;\n")
+            f.write(f"  Password*) echo {shlex.quote(token)} ;;\n")
+            f.write("  *)         echo \"\" ;;\n")
+            f.write("esac\n")
+        os.chmod(path, 0o700)
+        _ASKPASS_PATH[0] = path
+        return path
+    except Exception:
+        return None
+
+
+def _cleanup_askpass():
+    p = _ASKPASS_PATH[0]
+    if p:
+        try:
+            os.unlink(p)
+        except Exception:
+            pass
+
+atexit.register(_cleanup_askpass)
+
+
+def _git_env() -> dict:
+    """Return os.environ copy with GIT_ASKPASS injected if credentials exist."""
+    env = os.environ.copy()
+    askpass = _create_askpass()
+    if askpass:
+        env["GIT_ASKPASS"]         = askpass
+        env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _authed_url(url: str) -> str:
+    """Embed GitHub token into a clone URL if credentials are cached."""
+    token = _GH_CREDS.get("token", "")
+    if not token or "github.com" not in url:
+        return url
+    return url.replace("https://", f"https://{token}@", 1)
+
+
+def _gh_api_headers() -> dict:
+    """Return GitHub API headers, with Bearer auth if a token is cached."""
+    hdrs = {"User-Agent": f"Arsenal/{VERSION}",
+            "Accept":     "application/vnd.github+json"}
+    token = _GH_CREDS.get("token", "")
+    if token:
+        hdrs["Authorization"] = f"Bearer {token}"
+    return hdrs
+
 
 def ok(m:   str) -> None: print(f"{_G}[+]{_R} {m}", flush=True)
 def info(m: str) -> None: print(f"{_C}[*]{_R} {m}", flush=True)
@@ -235,7 +325,7 @@ def get_local_version(app: dict) -> Optional[str]:
 def get_github_version(app: dict) -> Optional[str]:
     """Query GitHub API for the latest release or tag."""
     repo = app["repo"]
-    hdrs = {"User-Agent": f"Arsenal/{VERSION}", "Accept": "application/vnd.github+json"}
+    hdrs = _gh_api_headers()
 
     # Try releases/latest first
     try:
@@ -499,7 +589,8 @@ def check_updates(status: dict[str, dict]) -> None:
 def _update_app(app: dict) -> None:
     install_dir = INSTALL_BASE / app["repo"]
     info(f"Updating {app['name']}…")
-    r = subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"])
+    r = subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                       env=_git_env())
     if r.returncode == 0:
         _run_install_py(install_dir)
         ok(f"{app['name']} updated.")
@@ -521,17 +612,20 @@ def _run_install_py(install_dir: Path) -> None:
 
 def install_app(app: dict) -> None:
     """Clone repo into INSTALL_BASE and run install.py."""
+    _ensure_gh_creds()
     INSTALL_BASE.mkdir(parents=True, exist_ok=True)
     install_dir = INSTALL_BASE / app["repo"]
+    git_env     = _git_env()
 
     if install_dir.is_dir():
         info(f"{app['name']} already present — pulling latest…")
-        subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"])
+        subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                       env=git_env)
     else:
         info(f"Cloning {app['github_url']}  →  {install_dir}")
         r = subprocess.run([
-            "git", "clone", "--depth=1", app["github_url"], str(install_dir),
-        ])
+            "git", "clone", "--depth=1", _authed_url(app["github_url"]), str(install_dir),
+        ], env=git_env)
         if r.returncode != 0:
             err(f"Clone failed for {app['name']}.")
             return
@@ -649,6 +743,7 @@ _CP_TO_INST  = 7   # bright green (marked to install)
 _CP_EXEC_BTN = 8   # bold green
 _CP_QUIT_BTN     = 9   # bold red
 _CP_REFRESH_BTN  = 10  # bold cyan
+_CP_UPGRADE_BTN  = 11  # bold yellow
 
 
 def _init_colors() -> None:
@@ -664,6 +759,7 @@ def _init_colors() -> None:
     curses.init_pair(_CP_EXEC_BTN,  curses.COLOR_GREEN,  -1)
     curses.init_pair(_CP_QUIT_BTN,     curses.COLOR_RED,    -1)
     curses.init_pair(_CP_REFRESH_BTN,  curses.COLOR_CYAN,   -1)
+    curses.init_pair(_CP_UPGRADE_BTN,  curses.COLOR_YELLOW, -1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -694,11 +790,13 @@ def _curses_menu(
         a["name"]: status[a["name"]]["installed"] for a in APPS
     }
 
-    # Navigation: rows 0..N-1 = apps, row N = Execute, row N+1 = Quit
+    # Navigation: rows 0..N-1 = apps, then action buttons
     ROW_EXEC    = N
     ROW_REFRESH = N + 1
-    ROW_QUIT    = N + 2
-    TOTAL       = N + 3
+    ROW_CHECK   = N + 2
+    ROW_UPGRADE = N + 3
+    ROW_QUIT    = N + 4
+    TOTAL       = N + 5
     cursor   = 0
     scroll   = 0      # index of first visible app row in viewport
 
@@ -822,22 +920,30 @@ def _curses_menu(
                         else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD
                               if can_refresh
                               else curses.color_pair(_CP_UNCKD) | curses.A_DIM))
+        check_attr   = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
+                        if cursor == ROW_CHECK
+                        else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD))
+        can_upgrade  = any(status[a["name"]]["needs_update"] for a in APPS)
+        upgrade_attr = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
+                        if cursor == ROW_UPGRADE
+                        else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD
+                              if can_upgrade
+                              else curses.color_pair(_CP_UNCKD) | curses.A_DIM))
         quit_attr    = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
                         if cursor == ROW_QUIT
                         else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD))
         try:
-            stdscr.addstr(fy + 1, 2,  "[ Execute ]",  exec_attr)
-            stdscr.addstr(fy + 1, 16, "[ Refresh ]",  refresh_attr)
-            stdscr.addstr(fy + 1, 30, "[ Quit ]",     quit_attr)
+            stdscr.addstr(fy + 1, 2,  "[ Execute ]",        exec_attr)
+            stdscr.addstr(fy + 1, 16, "[ Restart ]",        refresh_attr)
+            stdscr.addstr(fy + 1, 30, "[ Check Updates ]",  check_attr)
+            stdscr.addstr(fy + 1, 50, "[ Upgrade ]",        upgrade_attr)
+            stdscr.addstr(fy + 1, 64, "[ Quit ]",           quit_attr)
         except curses.error:
             pass
 
         try:
-            can_restart = (cursor < N and APPS[cursor]["flask"]
-                           and status[APPS[cursor]["name"]]["installed"])
-            hint = ("  ↑/↓: navigate   SPACE/ENTER: toggle   "
-                    "e: execute   R: refresh flask   q: quit"
-                    + ("   r: restart this" if can_restart else ""))
+            hint = ("  ↑/↓: navigate   SPC: toggle   "
+                    "e: execute   r: restart   u: check updates   U: upgrade   q: quit")
             stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
         except curses.error:
             pass
@@ -874,8 +980,12 @@ def _curses_menu(
                     and desired[APPS[i]["name"]]
                 ]
                 if _flask_checked:
-                    return {"to_install": [], "to_uninstall": [],
+                    return {"action": "execute", "to_install": [], "to_uninstall": [],
                             "to_restart": _flask_checked}
+            elif cursor == ROW_CHECK:
+                return {"action": "check_updates"}
+            elif cursor == ROW_UPGRADE:
+                return {"action": "upgrade"}
             elif cursor == ROW_QUIT:
                 return None
 
@@ -885,8 +995,14 @@ def _curses_menu(
         elif key == ord("q"):
             return None
 
+        elif key == ord("u"):
+            return {"action": "check_updates"}
+
+        elif key == ord("U"):
+            return {"action": "upgrade"}
+
         elif key == ord("R"):
-            # Bulk refresh — all checked installed Flask apps
+            # Bulk restart — all checked installed Flask apps
             _flask_checked = [
                 APPS[i]["name"] for i in range(N)
                 if APPS[i]["flask"]
@@ -894,7 +1010,7 @@ def _curses_menu(
                 and desired[APPS[i]["name"]]
             ]
             if _flask_checked:
-                return {"to_install": [], "to_uninstall": [],
+                return {"action": "execute", "to_install": [], "to_uninstall": [],
                         "to_restart": _flask_checked}
 
         elif key == ord("r"):
@@ -903,7 +1019,7 @@ def _curses_menu(
                 _app  = APPS[cursor]
                 _name = _app["name"]
                 if _app["flask"] and status[_name]["installed"]:
-                    return {"to_install": [], "to_uninstall": [],
+                    return {"action": "execute", "to_install": [], "to_uninstall": [],
                             "to_restart": [_name]}
 
     # Build result lists
@@ -911,7 +1027,7 @@ def _curses_menu(
                     if d and not status[n]["installed"]]
     to_uninstall = [n for n, d in desired.items()
                     if not d and status[n]["installed"]]
-    return {"to_install": to_install, "to_uninstall": to_uninstall}
+    return {"action": "execute", "to_install": to_install, "to_uninstall": to_uninstall}
 
 
 def run_selection_menu(status: dict[str, dict]) -> Optional[dict]:
@@ -1260,14 +1376,14 @@ def _phase_git(merged: dict) -> None:
             if local.exists():
                 r = _spin_run(tool_name,
                     [git, "-C", str(local), "pull", "--ff-only"],
-                    capture_output=True, text=True, timeout=120)
+                    capture_output=True, text=True, timeout=120, env=_git_env())
                 _log("git", tool_name, f"update {repo_url}", r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             else:
                 local.parent.mkdir(parents=True, exist_ok=True)
                 r = _spin_run(tool_name,
-                    [git, "clone", "--depth=1", repo_url, str(local)],
-                    capture_output=True, text=True, timeout=300)
+                    [git, "clone", "--depth=1", _authed_url(repo_url), str(local)],
+                    capture_output=True, text=True, timeout=300, env=_git_env())
                 _log("git", tool_name, f"clone {repo_url}", r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
                 if r.returncode != 0:
@@ -1301,6 +1417,10 @@ def install_apps_phased(app_names: list) -> None:
     os_type = detect_os()
     info(f"Detected OS: {os_type}")
 
+    # Step 0: ensure GitHub credentials are cached before any git operation
+    _ensure_gh_creds()
+    _git_e = _git_env()
+
     # Step 1: clone / pull all repos first
     for name in app_names:
         app         = APP_INDEX[name]
@@ -1309,12 +1429,12 @@ def install_apps_phased(app_names: list) -> None:
         if install_dir.is_dir():
             info(f"{name} already present — pulling latest…")
             subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                           capture_output=True)
+                           capture_output=True, env=_git_e)
         else:
             info(f"Cloning {app['github_url']}  →  {install_dir}")
             r = subprocess.run(
-                ["git", "clone", "--depth=1", app["github_url"], str(install_dir)],
-                capture_output=True, text=True,
+                ["git", "clone", "--depth=1", _authed_url(app["github_url"]), str(install_dir)],
+                capture_output=True, text=True, env=_git_e,
             )
             if r.returncode != 0:
                 err(f"Clone failed for {name}: {r.stderr.strip()[:120]}")
@@ -1550,6 +1670,51 @@ def generate_report(log: list, to_install: list,
         path = _write_text_report(log, to_install, to_uninstall, to_restart)
         ok(f"Installation report (text): {path}")
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check-for-updates and upgrade helpers (used from main loop)
+# ─────────────────────────────────────────────────────────────────────────────
+def _do_check_updates(status: dict) -> None:
+    """Query GitHub for latest versions of installed apps; mutate status in place."""
+    info("Checking GitHub for latest versions…")
+    for app in APPS:
+        name = app["name"]
+        if not status[name]["installed"]:
+            continue
+        gv = get_github_version(app)
+        st = status[name]
+        st["github_ver"] = gv
+        lv = st.get("local_ver")
+        st["needs_update"] = bool(lv and gv and lv not in ("unknown", gv))
+
+    outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
+    if not outdated:
+        ok("All installed apps are up to date.")
+    else:
+        print(f"\n{_Y}Updates available:{_R}")
+        for app in outdated:
+            st = status[app["name"]]
+            print(f"  {_Y}▲{_R}  {app['name']:<15}  "
+                  f"{st['local_ver']}  →  {_G}{st['github_ver']}{_R}")
+
+
+def _do_upgrade(status: dict) -> None:
+    """Upgrade every installed app marked needs_update; mutate status in place."""
+    outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
+    if not outdated:
+        ok("All installed apps are up to date.")
+        return
+    print(f"\n{_BLD}Upgrading:{_R}")
+    for app in outdated:
+        print(f"  {_Y}▲{_R}  {app['name']}")
+    print()
+    for app in outdated:
+        _update_app(app)
+        status[app["name"]]["local_ver"]    = get_local_version(app)
+        status[app["name"]]["needs_update"] = False
+    ok("Upgrade complete.")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Execute selected changes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1643,12 +1808,12 @@ def main() -> None:
     print(f"{_BLD}  Tool installer and manager  ·  Arsenal v{VERSION}{_R}")
     print(f"  Platform: {SYSTEM}   Install base: {INSTALL_BASE}\n")
 
-    # Status
+    # Prompt for GitHub credentials once for the entire session
+    _ensure_gh_creds()
+
+    # Initial status load
     status = load_status()
     print_status_table(status)
-
-    # Update check (optional interactive step)
-    check_updates(status)
 
     # Prompt before entering curses
     print(f"{_BLD}  Opening selection menu…{_R}  (press any key)")
@@ -1658,17 +1823,49 @@ def main() -> None:
         print()
         sys.exit(0)
 
-    # Interactive selection
-    selection = run_selection_menu(status)
+    # Main loop — stays in menu until the user chooses Quit
+    while True:
+        selection = run_selection_menu(status)
+        print()
 
-    # Restore normal terminal output
-    print()
+        if selection is None:
+            info("Exited without changes.")
+            break
 
-    if selection is None:
-        info("Exited without changes.")
-        return
+        action = selection.get("action", "execute")
 
-    execute_changes(selection, status)
+        if action == "check_updates":
+            _do_check_updates(status)
+            try:
+                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+
+        elif action == "upgrade":
+            _do_upgrade(status)
+            try:
+                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+
+        else:  # execute — install / uninstall / restart
+            execute_changes(selection, status)
+            # Refresh status entries for apps that changed
+            for name in selection.get("to_install", []):
+                app = APP_INDEX[name]
+                status[name]["installed"]      = (INSTALL_BASE / app["repo"]).is_dir()
+                status[name]["local_ver"]      = get_local_version(app)
+                status[name]["service_status"] = get_service_status(app)
+                status[name]["needs_update"]   = False
+            for name in selection.get("to_uninstall", []):
+                status[name]["installed"]      = False
+                status[name]["local_ver"]      = None
+                status[name]["service_status"] = ""
+                status[name]["needs_update"]   = False
+            try:
+                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
+            except (EOFError, KeyboardInterrupt):
+                print()
 
 
 if __name__ == "__main__":
