@@ -33,7 +33,7 @@ import time
 import shlex
 import atexit
 
-VERSION      = "1.2.0"
+VERSION      = "1.3.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -180,6 +180,39 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Aether-Z",
+        "repo":        "Aether-Z",
+        "github_url":  "https://github.com/pr0t31n/Aether-Z.git",
+        "description": "Multi-phase ZigBee / IEEE 802.15.4 pentest orchestrator — RF survey, network key recovery via join intercept, ZLL touchlink attacks, replay testing, and firmware analysis.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "aether_z.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Aether-B",
+        "repo":        "Aether-B",
+        "github_url":  "https://github.com/pr0t31n/Aether-B.git",
+        "description": "Multi-phase Bluetooth BR/EDR & BLE pentest orchestrator — KNOB, BIAS, BLUFFS, BLE legacy pairing cracking, GATT enumeration, GATTacker MITM, and BlueToolkit CVE exploitation.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "aether_b.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Aether-U",
+        "repo":        "Aether-U",
+        "github_url":  "https://github.com/pr0t31n/Aether-U.git",
+        "description": "Multi-phase UWB / RTLS pentest orchestrator — Ghost Peak distance-reduction, RTLS console default-credential attacks, unauthenticated MQTT exploitation, position injection, and SQLi.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "aether_u.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Spectre",
         "repo":        "Spectre",
         "github_url":  "https://github.com/pr0t31n/Spectre.git",
@@ -188,7 +221,7 @@ APPS: list[dict] = [
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-spectre",
-        "requires":    ["Aether"],
+        "requires":    ["Aether", "Aether-Z", "Aether-B", "Aether-U"],
     },
     {
         "name":        "Gearbox",
