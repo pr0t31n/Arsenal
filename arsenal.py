@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.4.0"
+VERSION      = "1.4.1"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -1316,14 +1316,34 @@ def _spin_run(label: str, cmd: list, **kwargs):
 # ─────────────────────────────────────────────────────────────────────────────
 # Brew without elevated privileges
 # ─────────────────────────────────────────────────────────────────────────────
-def _brew_cmd(brew: str, *args: str) -> list:
+def _brew_real_user() -> str:
+    """Return the non-root user to run brew as, or '' if undetermined."""
+    # Primary: SUDO_USER set by sudo
+    user = os.environ.get("SUDO_USER", "").strip()
+    if user and user != "root":
+        return user
+    # Fallback: logname reports the login user even inside sudo shells
+    try:
+        r = subprocess.run(["logname"], capture_output=True, text=True, timeout=3)
+        candidate = r.stdout.strip()
+        if candidate and candidate != "root":
+            return candidate
+    except Exception:
+        pass
+    return ""
+
+
+def _brew_cmd(brew: str, *args: str) -> "list | None":
     """
     Build a brew command that runs without elevated privileges.
-    If running as root (sudo), drop back to the original user via sudo -u.
+    Returns None if running as root and no safe user can be determined
+    (caller must skip the install in that case).
     """
-    sudo_user = os.environ.get("SUDO_USER", "").strip()
-    if os.geteuid() == 0 and sudo_user and sudo_user != "root":
-        return ["sudo", "-u", sudo_user, brew, *args]
+    if os.geteuid() == 0:
+        user = _brew_real_user()
+        if not user:
+            return None
+        return ["sudo", "-u", user, brew, *args]
     return [brew, *args]
 
 
@@ -1343,23 +1363,38 @@ def _phase_system(merged: dict, os_type: str) -> None:
             warn("  Install from https://brew.sh then re-run Arsenal.")
             return
         print(f"\n{_BLD}── Phase: brew packages ──────────────────────────────{_R}")
+        _brew_user_checked = False
         for item in merged.get("BREW_PACKAGES", []):
             pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
             if shutil.which(pkg.split("/")[-1]):
                 _log("brew", pkg, desc, True, stdout="already on PATH — skipped")
                 continue
+            cmd = _brew_cmd(brew, "install", pkg)
+            if cmd is None:
+                if not _brew_user_checked:
+                    warn("Running as root without a resolvable non-root user — "
+                         "skipping all brew installs. Re-run with sudo or as the "
+                         "original user.")
+                    _brew_user_checked = True
+                _log("brew", pkg, desc, False,
+                     error="Skipped — cannot run brew as root safely")
+                continue
+            _brew_user_checked = True
             try:
-                r = _spin_run(pkg, _brew_cmd(brew, "install", pkg),
-                             capture_output=True, text=True, timeout=300)
+                r = _spin_run(pkg, cmd, capture_output=True, text=True, timeout=300)
                 _log("brew", pkg, desc, r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             except Exception as exc:
                 _log("brew", pkg, desc, False, error=str(exc))
         for item in merged.get("BREW_CASK_PACKAGES", []):
             pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+            cmd = _brew_cmd(brew, "install", "--cask", pkg)
+            if cmd is None:
+                _log("brew-cask", pkg, desc, False,
+                     error="Skipped — cannot run brew as root safely")
+                continue
             try:
-                r = _spin_run(pkg, _brew_cmd(brew, "install", "--cask", pkg),
-                             capture_output=True, text=True, timeout=300)
+                r = _spin_run(pkg, cmd, capture_output=True, text=True, timeout=300)
                 _log("brew-cask", pkg, desc, r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             except Exception as exc:
