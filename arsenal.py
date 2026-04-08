@@ -164,7 +164,7 @@ APPS: list[dict] = [
         "repo":        "Quiver",
         "github_url":  "https://github.com/pr0t31n/Quiver.git",
         "description": "Hardware hacking command centre — 45-device registry with SSH, serial, and WebSocket shells for Hak5 and offensive security hardware.",
-        "port":        5002,
+        "port":        5200,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-quiver",
