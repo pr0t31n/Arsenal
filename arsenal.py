@@ -32,6 +32,8 @@ import threading
 import time
 import shlex
 import atexit
+import base64
+import getpass
 
 VERSION      = "1.3.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
@@ -64,7 +66,7 @@ def _ensure_gh_creds() -> None:
           "(for private repos — press Enter to skip)")
     try:
         user  = input("  Username: ").strip()
-        token = input("  Personal Access Token: ").strip()
+        token = getpass.getpass("  Personal Access Token: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return
@@ -296,7 +298,7 @@ APPS: list[dict] = [
         "description": "Go-based SOCKS5 + DNS proxy — transparent relay with iptables/pf integration for DNS interception and tunnelling through pivot points.",
         "port":        None,
         "flask":       False,
-        "main_file":   "main.go",
+        "main_file":   "cmd/client/main.go",
         "service":     None,
         "requires":    [],
     },
@@ -330,11 +332,22 @@ def check_root() -> None:
 # Version helpers
 # ─────────────────────────────────────────────────────────────────────────────
 def get_local_version(app: dict) -> Optional[str]:
-    """Read VERSION constant from the installed application source."""
+    """Read the installed version — plain VERSION file first, then source constants."""
     install_dir = INSTALL_BASE / app["repo"]
     if not install_dir.is_dir():
         return None
 
+    # Plain VERSION file (authoritative for all pr0t31n tools)
+    version_file = install_dir / "VERSION"
+    if version_file.exists():
+        try:
+            ver = version_file.read_text(encoding="utf-8").strip()
+            if ver:
+                return ver
+        except Exception:
+            pass
+
+    # Fall back to reading the VERSION constant from source
     candidates = [app["main_file"], "app.py", f"{app['name'].lower()}.py", "main.py", "main.go"]
     for fname in candidates:
         f = install_dir / fname
@@ -356,11 +369,28 @@ def get_local_version(app: dict) -> Optional[str]:
 
 
 def get_github_version(app: dict) -> Optional[str]:
-    """Query GitHub API for the latest release or tag."""
+    """Read the VERSION file from the GitHub repo contents API."""
     repo = app["repo"]
     hdrs = _gh_api_headers()
 
-    # Try releases/latest first
+    # Primary: read VERSION file directly from the default branch
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION",
+            headers=hdrs,
+        )
+        with urllib.request.urlopen(req, timeout=6) as r:
+            data = json.loads(r.read())
+            content = data.get("content", "")
+            encoding = data.get("encoding", "base64")
+            if content and encoding == "base64":
+                ver = base64.b64decode(content).decode("utf-8", errors="replace").strip()
+                if ver:
+                    return ver
+    except Exception:
+        pass
+
+    # Fallback: latest release tag
     try:
         req = urllib.request.Request(
             f"https://api.github.com/repos/pr0t31n/{repo}/releases/latest",
@@ -374,7 +404,7 @@ def get_github_version(app: dict) -> Optional[str]:
     except Exception:
         pass
 
-    # Fall back to tags
+    # Fallback: most recent tag
     try:
         req = urllib.request.Request(
             f"https://api.github.com/repos/pr0t31n/{repo}/tags",
