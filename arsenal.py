@@ -1263,7 +1263,13 @@ def _log(phase: str, name: str, description: str,
     print(f"  {sym}  {name}  —  {description[:60]}", flush=True)
     if not success and (stderr or error):
         snippet = (stderr or error).strip().splitlines()
-        for ln in snippet[-4:]:
+        # Show first line (Ruby/brew errors put the message there) + last 3 for context.
+        # For Python-style tracebacks the error is at the end, so the last 3 still apply.
+        if len(snippet) > 4:
+            lines = [snippet[0], "  …"] + snippet[-3:]
+        else:
+            lines = snippet
+        for ln in lines:
             print(f"      {_RD}{ln}{_R}", flush=True)
 
 
@@ -1343,7 +1349,7 @@ def _brew_cmd(brew: str, *args: str) -> "list | None":
         user = _brew_real_user()
         if not user:
             return None
-        return ["sudo", "-u", user, brew, *args]
+        return ["sudo", "-u", user, "-H", brew, *args]
     return [brew, *args]
 
 
