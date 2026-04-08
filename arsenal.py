@@ -120,12 +120,44 @@ def _git_env() -> dict:
     return env
 
 
+_GIT_NO_CWD = "Unable to read current working directory"
+
+
+def _git_run(cmd: list, **kwargs) -> "subprocess.CompletedProcess":
+    """Run a git command, retrying from /opt if the CWD no longer exists."""
+    import subprocess as _sp
+    r = _sp.run(cmd, **kwargs)
+    if r.returncode != 0:
+        raw = r.stderr or ""
+        stderr = raw if isinstance(raw, str) else raw.decode(errors="replace")
+        if _GIT_NO_CWD in stderr:
+            warn("git: CWD missing — retrying from /opt …")
+            kwargs["cwd"] = "/opt"
+            r = _sp.run(cmd, **kwargs)
+    return r
+
+
+def _git_spin_run(label: str, cmd: list, **kwargs) -> "subprocess.CompletedProcess":
+    """Spinner-wrapped git run with CWD-missing retry."""
+    r = _spin_run(label, cmd, **kwargs)
+    if r.returncode != 0:
+        raw = r.stderr or ""
+        stderr = raw if isinstance(raw, str) else raw.decode(errors="replace")
+        if _GIT_NO_CWD in stderr:
+            warn("git: CWD missing — retrying from /opt …")
+            kwargs["cwd"] = "/opt"
+            r = _spin_run(label, cmd, **kwargs)
+    return r
+
+
 def _authed_url(url: str) -> str:
     """Embed GitHub token into a clone URL if credentials are cached."""
     token = _GH_CREDS.get("token", "")
     if not token or "github.com" not in url:
         return url
-    return url.replace("https://", f"https://{token}@", 1)
+    from urllib.parse import quote as _quote
+    safe_token = _quote(token, safe="")
+    return url.replace("https://", f"https://{safe_token}@", 1)
 
 
 def _gh_api_headers() -> dict:
@@ -685,13 +717,13 @@ def check_updates(status: dict[str, dict]) -> None:
 def _update_app(app: dict) -> None:
     install_dir = INSTALL_BASE / app["repo"]
     info(f"Updating {app['name']}…")
-    r = subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                       env=_git_env())
+    r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                 capture_output=True, text=True, env=_git_env())
     if r.returncode == 0:
         _run_install_py(install_dir)
         ok(f"{app['name']} updated.")
     else:
-        err(f"git pull failed for {app['name']}.")
+        err(f"git pull failed for {app['name']}: {r.stderr.strip()[:120]}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -715,13 +747,13 @@ def install_app(app: dict) -> None:
 
     if install_dir.is_dir():
         info(f"{app['name']} already present — pulling latest…")
-        subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                       env=git_env)
+        _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                 capture_output=True, text=True, env=git_env)
     else:
         info(f"Cloning {app['github_url']}  →  {install_dir}")
-        r = subprocess.run([
+        r = _git_run([
             "git", "clone", "--depth=1", _authed_url(app["github_url"]), str(install_dir),
-        ], env=git_env)
+        ], capture_output=True, text=True, env=git_env)
         if r.returncode != 0:
             err(f"Clone failed for {app['name']}.")
             return
@@ -1511,14 +1543,14 @@ def _phase_git(merged: dict) -> None:
         local = Path(local_path)
         try:
             if local.exists():
-                r = _spin_run(tool_name,
+                r = _git_spin_run(tool_name,
                     [git, "-C", str(local), "pull", "--ff-only"],
                     capture_output=True, text=True, timeout=120, env=_git_env())
                 _log("git", tool_name, f"update {repo_url}", r.returncode == 0,
                      stdout=r.stdout, stderr=r.stderr)
             else:
                 local.parent.mkdir(parents=True, exist_ok=True)
-                r = _spin_run(tool_name,
+                r = _git_spin_run(tool_name,
                     [git, "clone", "--depth=1", _authed_url(repo_url), str(local)],
                     capture_output=True, text=True, timeout=300, env=_git_env())
                 _log("git", tool_name, f"clone {repo_url}", r.returncode == 0,
@@ -1565,11 +1597,11 @@ def install_apps_phased(app_names: list) -> None:
         INSTALL_BASE.mkdir(parents=True, exist_ok=True)
         if install_dir.is_dir():
             info(f"{name} already present — pulling latest…")
-            subprocess.run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                           capture_output=True, env=_git_e)
+            _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                     capture_output=True, text=True, env=_git_e)
         else:
             info(f"Cloning {app['github_url']}  →  {install_dir}")
-            r = subprocess.run(
+            r = _git_run(
                 ["git", "clone", "--depth=1", _authed_url(app["github_url"]), str(install_dir)],
                 capture_output=True, text=True, env=_git_e,
             )
