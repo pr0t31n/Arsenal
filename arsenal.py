@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.4.1"
+VERSION      = "1.4.2"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -377,6 +377,17 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-crucible",
         "requires":    ["Fracture", "Siphon"],
+    },
+    {
+        "name":        "AuthProbe",
+        "repo":        "AuthProbe",
+        "github_url":  "https://github.com/pr0t31n/AuthProbe.git",
+        "description": "Detects and probes authentication methods on web apps and APIs. Identifies Basic, Digest, NTLM, Bearer, OAuth2/OIDC, form login, session cookies, API keys, and Kerberos. Validates credentials and recommends the best method for Fracture/Siphon.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "authprobe.py",
+        "service":     None,
+        "requires":    [],
     },
 ]
 
