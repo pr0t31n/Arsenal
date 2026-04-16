@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.4.2"
+VERSION      = "1.5.3"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -389,6 +389,53 @@ APPS: list[dict] = [
         "service":     None,
         "requires":    [],
     },
+    {
+        "name":        "Bastion",
+        "repo":        "Bastion",
+        "github_url":  "https://github.com/pr0t31n/Bastion.git",
+        "description": "Firewall and network policy analysis platform — uploads configs for automated audit, vulnerability identification, and compliance reporting.",
+        "port":        5000,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-bastion",
+        "requires":    [],
+    },
+    {
+        "name":        "Prometheus",
+        # Absolute path: Path("/opt/pr0t31n") / "/Users/pr0t31n/Prometheus" resolves
+        # to Path("/Users/pr0t31n/Prometheus") — Python replaces the base with any
+        # absolute right-hand operand, so INSTALL_BASE / repo works correctly here.
+        "repo":        "/Users/pr0t31n/Prometheus",
+        "github_url":  "https://github.com/pr0t31n/Prometheus.git",
+        "description": "Unified pentest report engine — ingests findings from Fracture, Siphon, Scattershot3, Gearbox, Bastion, OSift, and Aether to produce correlated Excel and HTML reports.",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "prometheus.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Phalanx",
+        "repo":        "Phalanx",
+        "github_url":  "https://github.com/pr0t31n/Phalanx.git",
+        "description": "Security orchestration platform — aggregates, correlates, and enriches findings from all pr0t31n tools into a unified client dashboard with compliance mapping (NIST, OWASP, PCI DSS, ISO 27001, MITRE ATT&CK) and cross-tool analysis.",
+        "port":        5700,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-phalanx",
+        "requires":    [],
+    },
+    {
+        "name":        "Arbiter",
+        "repo":        "Arbiter",
+        "github_url":  "https://github.com/pr0t31n/Arbiter.git",
+        "description": "Security orchestration platform — aggregates, correlates, and enriches findings from all pr0t31n tools into a unified client dashboard with compliance mapping (NIST, OWASP, PCI DSS, ISO 27001, MITRE ATT&CK) and cross-tool analysis.",
+        "port":        5700,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-arbiter",
+        "requires":    [],
+    },
 ]
 
 APP_INDEX: dict[str, dict] = {a["name"]: a for a in APPS}
@@ -407,6 +454,14 @@ def check_root() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Version helpers
 # ─────────────────────────────────────────────────────────────────────────────
+def _version_gt(v1: str, v2: str) -> bool:
+    """Return True if v1 is strictly greater than v2 (semver tuple comparison)."""
+    try:
+        return tuple(int(x) for x in v1.split(".")) > tuple(int(x) for x in v2.split("."))
+    except Exception:
+        return False
+
+
 def get_local_version(app: dict) -> Optional[str]:
     """Read the installed version — plain VERSION file first, then source constants."""
     install_dir = INSTALL_BASE / app["repo"]
@@ -494,6 +549,71 @@ def get_github_version(app: dict) -> Optional[str]:
         pass
 
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# macOS plist management
+# ─────────────────────────────────────────────────────────────────────────────
+def _write_plist(app: dict) -> Optional[Path]:
+    """
+    Write (or overwrite) the LaunchDaemon plist for a Flask app on macOS,
+    always using INSTALL_BASE / repo as the working directory.
+    Returns the plist path on success, None if not macOS or not a Flask app.
+    """
+    if SYSTEM != "Darwin" or not app.get("flask"):
+        return None
+
+    python_bin = shutil.which("python3") or sys.executable
+    install_dir = INSTALL_BASE / app["repo"]
+    main_script = install_dir / app["main_file"]
+    label       = f"com.pr0t31n.{app['name'].lower()}"
+    plist_path  = Path(f"/Library/LaunchDaemons/{label}.plist")
+    log_out     = f"/var/log/pr0t31n-{app['name'].lower()}.log"
+    log_err     = f"/var/log/pr0t31n-{app['name'].lower()}.err"
+
+    env_block = ""
+    if app.get("port"):
+        env_block = (
+            f"    <key>EnvironmentVariables</key>\n"
+            f"    <dict>\n"
+            f"        <key>PORT</key>\n"
+            f"        <string>{app['port']}</string>\n"
+            f"    </dict>\n"
+        )
+
+    content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{python_bin}</string>
+        <string>{main_script}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{install_dir}</string>
+{env_block}    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{log_out}</string>
+    <key>StandardErrorPath</key>
+    <string>{log_err}</string>
+</dict>
+</plist>
+"""
+    try:
+        plist_path.write_text(content)
+        plist_path.chmod(0o644)
+        ok(f"Wrote plist: {plist_path}  →  {main_script}")
+        return plist_path
+    except Exception as exc:
+        warn(f"Could not write plist for {app['name']}: {exc}")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -608,6 +728,8 @@ def restart_app(app: dict) -> bool:
         if svc:
             label      = f"com.pr0t31n.{name.lower()}"
             plist_path = Path(f"/Library/LaunchDaemons/{label}.plist")
+            # Always (re)write the plist so paths stay anchored to INSTALL_BASE
+            _write_plist(app)
             if plist_path.exists():
                 # Full unload/load cycle — stop/start only suspends the process;
                 # unload removes it from launchd so load re-reads the plist.
@@ -770,6 +892,7 @@ def install_app(app: dict) -> None:
             return
 
     _run_install_py(install_dir)
+    _write_plist(app)
     ok(f"{app['name']} installed.")
 
 
@@ -872,33 +995,35 @@ def resolve_dependencies(
 # ─────────────────────────────────────────────────────────────────────────────
 # curses colour pairs
 # ─────────────────────────────────────────────────────────────────────────────
-_CP_HEADER   = 1   # cyan
-_CP_NORMAL   = 2   # white
-_CP_HILITE   = 3   # black on yellow (selected row)
-_CP_CHECKED  = 4   # green  (installed + keeping)
-_CP_UNCKD    = 5   # dim    (not installed, not selected)
-_CP_TO_UNINST= 6   # red    (marked to uninstall)
-_CP_TO_INST  = 7   # bright green (marked to install)
-_CP_EXEC_BTN = 8   # bold green
-_CP_QUIT_BTN     = 9   # bold red
-_CP_REFRESH_BTN  = 10  # bold cyan
-_CP_UPGRADE_BTN  = 11  # bold yellow
+_CP_HEADER       = 1   # cyan
+_CP_NORMAL       = 2   # white
+_CP_HILITE       = 3   # black on yellow (selected row)
+_CP_CHECKED      = 4   # green  (checked / installed dot)
+_CP_UNCKD        = 5   # dim    (unchecked / not-installed dot)
+_CP_TO_UNINST    = 6   # red    (Uninstall button)
+_CP_TO_INST      = 7   # green  (unused marker, kept for compat)
+_CP_EXEC_BTN     = 8   # bold green  (Install button)
+_CP_QUIT_BTN     = 9   # bold red    (Quit button)
+_CP_REFRESH_BTN  = 10  # bold cyan   (Restart button)
+_CP_UPGRADE_BTN  = 11  # bold yellow (Upgrade / Push buttons)
+_CP_VER_OLD      = 12  # red no-bold (stale version display — dark red)
 
 
 def _init_colors() -> None:
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(_CP_HEADER,    curses.COLOR_CYAN,   -1)
-    curses.init_pair(_CP_NORMAL,    curses.COLOR_WHITE,  -1)
-    curses.init_pair(_CP_HILITE,    curses.COLOR_BLACK,  curses.COLOR_YELLOW)
-    curses.init_pair(_CP_CHECKED,   curses.COLOR_GREEN,  -1)
-    curses.init_pair(_CP_UNCKD,     curses.COLOR_WHITE,  -1)
-    curses.init_pair(_CP_TO_UNINST, curses.COLOR_RED,    -1)
-    curses.init_pair(_CP_TO_INST,   curses.COLOR_GREEN,  -1)
-    curses.init_pair(_CP_EXEC_BTN,  curses.COLOR_GREEN,  -1)
-    curses.init_pair(_CP_QUIT_BTN,     curses.COLOR_RED,    -1)
-    curses.init_pair(_CP_REFRESH_BTN,  curses.COLOR_CYAN,   -1)
-    curses.init_pair(_CP_UPGRADE_BTN,  curses.COLOR_YELLOW, -1)
+    curses.init_pair(_CP_HEADER,     curses.COLOR_CYAN,   -1)
+    curses.init_pair(_CP_NORMAL,     curses.COLOR_WHITE,  -1)
+    curses.init_pair(_CP_HILITE,     curses.COLOR_BLACK,  curses.COLOR_YELLOW)
+    curses.init_pair(_CP_CHECKED,    curses.COLOR_GREEN,  -1)
+    curses.init_pair(_CP_UNCKD,      curses.COLOR_WHITE,  -1)
+    curses.init_pair(_CP_TO_UNINST,  curses.COLOR_RED,    -1)
+    curses.init_pair(_CP_TO_INST,    curses.COLOR_GREEN,  -1)
+    curses.init_pair(_CP_EXEC_BTN,   curses.COLOR_GREEN,  -1)
+    curses.init_pair(_CP_QUIT_BTN,   curses.COLOR_RED,    -1)
+    curses.init_pair(_CP_REFRESH_BTN, curses.COLOR_CYAN,  -1)
+    curses.init_pair(_CP_UPGRADE_BTN, curses.COLOR_YELLOW,-1)
+    curses.init_pair(_CP_VER_OLD,    curses.COLOR_RED,    -1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -909,42 +1034,56 @@ def _curses_menu(
     status: dict[str, dict],
 ) -> Optional[dict]:
     """
-    Interactive checkbox list.
-    Returns {"to_install": [...], "to_uninstall": [...]} or None (quit).
+    Interactive checkbox list.  Checkboxes select tools; install state is
+    shown separately via the ●/○ indicator.  Buttons light up based on what
+    is checked and the current install / version state of those tools.
 
     Keys:
-        ↑ / k        — move up
-        ↓ / j        — move down
-        SPACE / ENTER — toggle checkbox
-        e            — execute (from anywhere)
-        q            — quit without changes
+        ↑ / k          — move up
+        ↓ / j          — move down
+        SPACE / ENTER  — toggle checkbox / activate button
+        i / e          — install checked (not-yet-installed) tools
+        x              — uninstall checked (installed) tools
+        U              — upgrade checked tools whose GitHub ver is newer
+        p              — push checked tools whose local ver is newer
+        r              — restart Flask app under cursor
+        R              — restart all checked installed Flask apps
+        q              — quit without changes
     """
     curses.curs_set(0)
     _init_colors()
 
     N = len(APPS)
 
-    # Desired end-state per app (True = want installed)
-    desired: dict[str, bool] = {
-        a["name"]: status[a["name"]]["installed"] for a in APPS
-    }
+    # Checkboxes start unchecked — install state is displayed separately
+    desired: dict[str, bool] = {a["name"]: False for a in APPS}
 
     # Navigation: rows 0..N-1 = apps, then action buttons
-    ROW_EXEC    = N
-    ROW_REFRESH = N + 1
-    ROW_CHECK   = N + 2
-    ROW_UPGRADE = N + 3
-    ROW_QUIT    = N + 4
-    TOTAL       = N + 5
-    cursor   = 0
-    scroll   = 0      # index of first visible app row in viewport
+    ROW_INSTALL   = N
+    ROW_UNINSTALL = N + 1
+    ROW_UPGRADE   = N + 2
+    ROW_PUSH      = N + 3
+    ROW_REFRESH   = N + 4
+    ROW_QUIT      = N + 5
+    TOTAL         = N + 6
+    cursor = 0
+    scroll = 0  # index of first visible app row in viewport
+
+    # Fixed column offsets for the row format:
+    # "  [x]  ●  name<14  lv<9  gv<9  port<6  desc"
+    #  01234567890123456789012345678901234567890123456789
+    #  0         1         2         3         4
+    COL_CHK  = 2
+    COL_INST = 7
+    COL_LV   = 26
+    COL_GV   = 37
 
     while True:
         stdscr.erase()
         max_y, max_x = stdscr.getmaxyx()
         safe_x = max_x - 1
 
-        if max_y < 12 or max_x < 50:
+        if max_y < 12 or max_x < 60:
             stdscr.addstr(0, 0, "Terminal too small — resize and retry.")
             stdscr.refresh()
             stdscr.getch()
@@ -956,8 +1095,8 @@ def _curses_menu(
                       curses.color_pair(_CP_HEADER) | curses.A_BOLD)
 
         col_hdr = (
-            f"  {'':3}  {'Application':<14}  "
-            f"{'Installed':<9}  {'Latest':<9}  {'Port':<6}  Description"
+            f"  {'SEL':3}  {'':1}  {'Application':<14}  "
+            f"{'Inst.Ver':<9}  {'Latest':<9}  {'Port':<6}  Description"
         )
         stdscr.addstr(1, 0, col_hdr[:safe_x], curses.color_pair(_CP_HEADER))
 
@@ -991,27 +1130,29 @@ def _curses_menu(
             d    = desired[name]
             orig = st["installed"]
 
-            # Checkbox marker and colour
-            if d and not orig:
-                chk, chk_cp = "[+]", _CP_TO_INST
-            elif not d and orig:
-                chk, chk_cp = "[-]", _CP_TO_UNINST
-            elif d and orig:
+            # Checkbox: checked/unchecked only — install state shown separately
+            if d:
                 chk, chk_cp = "[✓]", _CP_CHECKED
             else:
                 chk, chk_cp = "[ ]", _CP_UNCKD
 
-            lv   = st["local_ver"]  or "—"
-            gv   = st["github_ver"] or "?"
-            port = str(app["port"]) if app["port"] else "—"
+            # Install status indicator (●=installed, ○=not installed)
+            if orig:
+                inst_marker, inst_cp = "●", _CP_CHECKED
+            else:
+                inst_marker, inst_cp = "○", _CP_UNCKD
 
-            # Truncate description to remaining width
-            desc_start = 2 + 5 + 14 + 9 + 9 + 6 + 6
-            desc_w     = max(10, max_x - desc_start - 2)
-            desc       = app["description"][:desc_w]
+            lv_raw = st["local_ver"]  or ""
+            gv_raw = st["github_ver"] or ""
+            lv     = lv_raw or "—"
+            gv     = gv_raw or "?"
+            port   = str(app["port"]) if app["port"] else "—"
+
+            desc_w   = max(10, safe_x - 58)
+            desc     = app["description"][:desc_w]
 
             row_text = (
-                f"  {chk}  {name:<14}  {lv:<9}  {gv:<9}  {port:<6}  {desc}"
+                f"  {chk}  {inst_marker}  {name:<14}  {lv:<9}  {gv:<9}  {port:<6}  {desc}"
             )
 
             is_on = (row_idx == cursor)
@@ -1019,11 +1160,32 @@ def _curses_menu(
                         if is_on else curses.color_pair(_CP_NORMAL))
             try:
                 stdscr.addstr(screen_y, 0, row_text[:safe_x], row_attr)
-                # Re-paint checkbox with its semantic colour
-                chk_attr = curses.color_pair(chk_cp) | curses.A_BOLD
-                if is_on:
-                    chk_attr |= curses.color_pair(_CP_HILITE)
-                stdscr.addstr(screen_y, 2, chk, chk_attr)
+
+                # Re-paint checkbox with semantic colour
+                chk_attr = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
+                             if is_on
+                             else curses.color_pair(chk_cp) | curses.A_BOLD)
+                stdscr.addstr(screen_y, COL_CHK, chk, chk_attr)
+
+                # Re-paint install status dot
+                inst_attr = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
+                              if is_on
+                              else curses.color_pair(inst_cp) | curses.A_BOLD)
+                stdscr.addstr(screen_y, COL_INST, inst_marker, inst_attr)
+
+                # Re-paint version columns when they differ (skip hilite row)
+                if (not is_on and lv_raw and gv_raw
+                        and lv_raw not in ("unknown",) and gv_raw not in ("?",)):
+                    if _version_gt(gv_raw, lv_raw) and COL_LV < safe_x:
+                        # GitHub newer → installed version is stale → dark red
+                        stdscr.addstr(screen_y, COL_LV,
+                                      f"{lv:<9}"[:safe_x - COL_LV],
+                                      curses.color_pair(_CP_VER_OLD))
+                    elif _version_gt(lv_raw, gv_raw) and COL_GV < safe_x:
+                        # Local newer → latest column is behind → dark red
+                        stdscr.addstr(screen_y, COL_GV,
+                                      f"{gv:<9}"[:safe_x - COL_GV],
+                                      curses.color_pair(_CP_VER_OLD))
             except curses.error:
                 pass
 
@@ -1046,50 +1208,88 @@ def _curses_menu(
         except curses.error:
             pass
 
-        exec_attr    = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                        if cursor == ROW_EXEC
-                        else (curses.color_pair(_CP_EXEC_BTN) | curses.A_BOLD))
-        can_refresh  = any(
-            APPS[i]["flask"] and status[APPS[i]["name"]]["installed"]
+        # Button availability — all scoped to currently checked tools
+        checked_names = [a["name"] for a in APPS if desired[a["name"]]]
+
+        can_install = any(
+            not status[n]["installed"] for n in checked_names
+        )
+        can_uninstall = any(
+            status[n]["installed"] for n in checked_names
+        )
+        can_upgrade = any(
+            status[n]["installed"]
+            and _version_gt(
+                status[n].get("github_ver") or "",
+                status[n].get("local_ver") or "",
+            )
+            for n in checked_names
+        )
+        can_push = any(
+            status[n]["installed"]
+            and _version_gt(
+                status[n].get("local_ver") or "",
+                status[n].get("github_ver") or "",
+            )
+            for n in checked_names
+        )
+        can_refresh = any(
+            APPS[i]["flask"]
+            and status[APPS[i]["name"]]["installed"]
             and desired[APPS[i]["name"]]
             for i in range(N)
         )
-        refresh_attr = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                        if cursor == ROW_REFRESH
-                        else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD
-                              if can_refresh
-                              else curses.color_pair(_CP_UNCKD) | curses.A_DIM))
-        check_attr   = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                        if cursor == ROW_CHECK
-                        else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD))
-        can_upgrade  = any(status[a["name"]]["needs_update"] for a in APPS)
-        upgrade_attr = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                        if cursor == ROW_UPGRADE
-                        else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD
-                              if can_upgrade
-                              else curses.color_pair(_CP_UNCKD) | curses.A_DIM))
-        quit_attr    = ((curses.color_pair(_CP_HILITE) | curses.A_BOLD)
-                        if cursor == ROW_QUIT
-                        else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD))
+
+        install_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_INSTALL
+            else (curses.color_pair(_CP_EXEC_BTN) | curses.A_BOLD) if can_install
+            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+        )
+        uninstall_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_UNINSTALL
+            else (curses.color_pair(_CP_TO_UNINST) | curses.A_BOLD) if can_uninstall
+            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+        )
+        upgrade_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_UPGRADE
+            else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_upgrade
+            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+        )
+        push_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_PUSH
+            else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_push
+            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+        )
+        refresh_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_REFRESH
+            else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD) if can_refresh
+            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+        )
+        quit_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_QUIT
+            else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD)
+        )
+
         try:
-            stdscr.addstr(fy + 1, 2,  "[ Execute ]",        exec_attr)
-            stdscr.addstr(fy + 1, 16, "[ Restart ]",        refresh_attr)
-            stdscr.addstr(fy + 1, 30, "[ Check Updates ]",  check_attr)
-            stdscr.addstr(fy + 1, 50, "[ Upgrade ]",        upgrade_attr)
-            stdscr.addstr(fy + 1, 64, "[ Quit ]",           quit_attr)
+            stdscr.addstr(fy + 1, 2,  "[ Install ]",   install_attr)
+            stdscr.addstr(fy + 1, 15, "[ Uninstall ]", uninstall_attr)
+            stdscr.addstr(fy + 1, 30, "[ Upgrade ]",   upgrade_attr)
+            stdscr.addstr(fy + 1, 43, "[ Push ]",      push_attr)
+            stdscr.addstr(fy + 1, 53, "[ Restart ]",   refresh_attr)
+            stdscr.addstr(fy + 1, 66, "[ Quit ]",      quit_attr)
         except curses.error:
             pass
 
         try:
-            hint = ("  ↑/↓: navigate   SPC: toggle   "
-                    "e: execute   r: restart   u: check updates   U: upgrade   q: quit")
+            hint = ("  ↑/↓: navigate   SPC: select   "
+                    "i: install   x: uninstall   U: upgrade   p: push   r: restart   q: quit")
             stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
         except curses.error:
             pass
 
         try:
-            req = ("  Dependencies: Spectre→Aether  "
-                   "Gauntlet→Gearbox  Vantage→Scattershot3+OSift")
+            req = ("  ●=installed  ○=not installed   "
+                   "Dependencies: Spectre→Aether  Gauntlet→Gearbox  Vantage→Scattershot3+OSift")
             stdscr.addstr(fy + 3, 0, req[:safe_x],
                           curses.color_pair(_CP_UNCKD) | curses.A_DIM)
         except curses.error:
@@ -1109,36 +1309,60 @@ def _curses_menu(
         elif key in (ord(" "), curses.KEY_ENTER, ord("\n"), ord("\r")):
             if cursor < N:
                 desired[APPS[cursor]["name"]] = not desired[APPS[cursor]["name"]]
-            elif cursor == ROW_EXEC:
-                break
+            elif cursor == ROW_INSTALL:
+                if can_install:
+                    to_install = [n for n in checked_names
+                                  if not status[n]["installed"]]
+                    return {"action": "execute",
+                            "to_install": to_install, "to_uninstall": []}
+            elif cursor == ROW_UNINSTALL:
+                if can_uninstall:
+                    to_uninstall = [n for n in checked_names
+                                    if status[n]["installed"]]
+                    return {"action": "execute",
+                            "to_install": [], "to_uninstall": to_uninstall}
+            elif cursor == ROW_UPGRADE:
+                if can_upgrade:
+                    return {"action": "upgrade"}
+            elif cursor == ROW_PUSH:
+                if can_push:
+                    return {"action": "push_to_github"}
             elif cursor == ROW_REFRESH:
                 _flask_checked = [
-                    APPS[i]["name"] for i in range(N)
-                    if APPS[i]["flask"]
-                    and status[APPS[i]["name"]]["installed"]
-                    and desired[APPS[i]["name"]]
+                    n for n in checked_names
+                    if any(a["flask"] and a["name"] == n for a in APPS)
+                    and status[n]["installed"]
                 ]
                 if _flask_checked:
                     return {"action": "execute", "to_install": [], "to_uninstall": [],
                             "to_restart": _flask_checked}
-            elif cursor == ROW_CHECK:
-                return {"action": "check_updates"}
-            elif cursor == ROW_UPGRADE:
-                return {"action": "upgrade"}
             elif cursor == ROW_QUIT:
                 return None
 
-        elif key == ord("e"):
-            break
+        elif key in (ord("i"), ord("e")):
+            if can_install:
+                to_install = [n for n in checked_names
+                              if not status[n]["installed"]]
+                return {"action": "execute",
+                        "to_install": to_install, "to_uninstall": []}
+
+        elif key == ord("x"):
+            if can_uninstall:
+                to_uninstall = [n for n in checked_names
+                                if status[n]["installed"]]
+                return {"action": "execute",
+                        "to_install": [], "to_uninstall": to_uninstall}
 
         elif key == ord("q"):
             return None
 
-        elif key == ord("u"):
-            return {"action": "check_updates"}
-
         elif key == ord("U"):
-            return {"action": "upgrade"}
+            if can_upgrade:
+                return {"action": "upgrade"}
+
+        elif key == ord("p"):
+            if can_push:
+                return {"action": "push_to_github"}
 
         elif key == ord("R"):
             # Bulk restart — all checked installed Flask apps
@@ -1160,13 +1384,6 @@ def _curses_menu(
                 if _app["flask"] and status[_name]["installed"]:
                     return {"action": "execute", "to_install": [], "to_uninstall": [],
                             "to_restart": [_name]}
-
-    # Build result lists
-    to_install   = [n for n, d in desired.items()
-                    if d and not status[n]["installed"]]
-    to_uninstall = [n for n, d in desired.items()
-                    if not d and status[n]["installed"]]
-    return {"action": "execute", "to_install": to_install, "to_uninstall": to_uninstall}
 
 
 def run_selection_menu(status: dict[str, dict]) -> Optional[dict]:
@@ -1896,6 +2113,86 @@ def _do_upgrade(status: dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Git push helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def _push_app_to_github(app: dict, status: dict) -> None:
+    """Run git add *, commit, and push origin main from within the app's repo dir."""
+    install_dir = INSTALL_BASE / app["repo"]
+    name        = app["name"]
+    info(f"Pushing {name}…")
+
+    git_e       = _git_env()
+    commit_msg  = ("Changes were made. Things occured. "
+                   "This push was automated using Arsenal.")
+
+    r1 = _git_run(
+        ["git", "-C", str(install_dir), "add", "*"],
+        capture_output=True, text=True, env=git_e,
+    )
+    if r1.returncode != 0:
+        warn(f"{name}: git add returned {r1.returncode} — {r1.stderr.strip()[:80]}")
+
+    r2 = _git_run(
+        ["git", "-C", str(install_dir), "commit", "-m", commit_msg],
+        capture_output=True, text=True, env=git_e,
+    )
+    if r2.returncode != 0:
+        # Exit code 1 with "nothing to commit" is not an error
+        if "nothing to commit" in (r2.stdout + r2.stderr).lower():
+            warn(f"{name}: nothing to commit — skipping push.")
+            return
+        warn(f"{name}: git commit returned {r2.returncode} — {r2.stderr.strip()[:80]}")
+
+    r3 = _git_run(
+        ["git", "-C", str(install_dir), "push", "origin", "main"],
+        capture_output=True, text=True, env=git_e,
+    )
+    if r3.returncode == 0:
+        ok(f"{name} pushed successfully.")
+        status[name]["github_ver"]   = status[name].get("local_ver")
+        status[name]["needs_update"] = False
+    else:
+        err(f"{name}: git push failed — {r3.stderr.strip()[:120]}")
+
+
+def _do_push_to_github(status: dict) -> None:
+    """Push repos where local version is ahead of GitHub; prompt for confirmation."""
+    pushable = [
+        a for a in APPS
+        if status[a["name"]]["installed"]
+        and _version_gt(
+            status[a["name"]].get("local_ver") or "",
+            status[a["name"]].get("github_ver") or "",
+        )
+    ]
+
+    if not pushable:
+        ok("No repos with local version ahead of GitHub.")
+        return
+
+    print(f"\n{_Y}Repos with local version ahead of GitHub:{_R}")
+    for app in pushable:
+        st = status[app["name"]]
+        print(f"  {_Y}↑{_R}  {app['name']:<15}  "
+              f"local: {st['local_ver']}  →  github: {st.get('github_ver') or '?'}")
+    print()
+
+    try:
+        ans = input(f"{_BLD}Push all to GitHub? [y/N]{_R} ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if ans != "y":
+        info("Aborted.")
+        return
+
+    print()
+    for app in pushable:
+        _push_app_to_github(app, status)
+    ok("Push complete.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Execute selected changes
 # ─────────────────────────────────────────────────────────────────────────────
 def execute_changes(selection: dict, status: dict[str, dict]) -> None:
@@ -2023,6 +2320,23 @@ def main() -> None:
 
         elif action == "upgrade":
             _do_upgrade(status)
+            try:
+                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+
+        elif action == "push_to_github":
+            _do_push_to_github(status)
+            # Refresh GitHub versions after push so status table is accurate
+            for _app in APPS:
+                _name = _app["name"]
+                if status[_name]["installed"]:
+                    _gv = get_github_version(_app)
+                    status[_name]["github_ver"] = _gv
+                    _lv = status[_name].get("local_ver")
+                    status[_name]["needs_update"] = bool(
+                        _lv and _gv and _lv not in ("unknown", _gv)
+                    )
             try:
                 input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
             except (EOFError, KeyboardInterrupt):
