@@ -35,9 +35,19 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.5.3"
+VERSION      = "1.5.4"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
+
+
+def _install_dir(app: dict) -> Path:
+    """Return the local install directory for an app.
+    Uses app["install_path"] if present, otherwise INSTALL_BASE / app["repo"].
+    """
+    if "install_path" in app:
+        return Path(app["install_path"])
+    return INSTALL_BASE / app["repo"]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ANSI colour helpers (non-curses sections)
@@ -394,19 +404,17 @@ APPS: list[dict] = [
         "repo":        "Bastion",
         "github_url":  "https://github.com/pr0t31n/Bastion.git",
         "description": "Firewall and network policy analysis platform — uploads configs for automated audit, vulnerability identification, and compliance reporting.",
-        "port":        5000,
+        "port":        5600,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-bastion",
         "requires":    [],
     },
     {
-        "name":        "Prometheus",
-        # Absolute path: Path("/opt/pr0t31n") / "/Users/pr0t31n/Prometheus" resolves
-        # to Path("/Users/pr0t31n/Prometheus") — Python replaces the base with any
-        # absolute right-hand operand, so INSTALL_BASE / repo works correctly here.
-        "repo":        "/Users/pr0t31n/Prometheus",
-        "github_url":  "https://github.com/pr0t31n/Prometheus.git",
+        "name":         "Prometheus",
+        "repo":         "Prometheus",
+        "install_path": "/Users/pr0t31n/Prometheus",
+        "github_url":   "https://github.com/pr0t31n/Prometheus.git",
         "description": "Unified pentest report engine — ingests findings from Fracture, Siphon, Scattershot3, Gearbox, Bastion, OSift, and Aether to produce correlated Excel and HTML reports.",
         "port":        None,
         "flask":       False,
@@ -453,7 +461,7 @@ def _version_gt(v1: str, v2: str) -> bool:
 
 def get_local_version(app: dict) -> Optional[str]:
     """Read the installed version — plain VERSION file first, then source constants."""
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
     if not install_dir.is_dir():
         return None
 
@@ -553,7 +561,7 @@ def _write_plist(app: dict) -> Optional[Path]:
         return None
 
     python_bin = shutil.which("python3") or sys.executable
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
     main_script = install_dir / app["main_file"]
     label       = f"com.pr0t31n.{app['name'].lower()}"
     plist_path  = Path(f"/Library/LaunchDaemons/{label}.plist")
@@ -660,7 +668,7 @@ def _kill_port(port: int) -> None:
 def _process_restart(app: dict) -> bool:
     """Kill the process on app's port and spawn a fresh instance in the background."""
     port        = app.get("port")
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
     app_script  = install_dir / "app.py"
 
     if not app_script.exists():
@@ -748,7 +756,7 @@ def load_status() -> dict[str, dict]:
     info("Checking installation status…")
     status: dict[str, dict] = {}
     for app in APPS:
-        installed  = (INSTALL_BASE / app["repo"]).is_dir()
+        installed  = _install_dir(app).is_dir()
         local_ver  = get_local_version(app) if installed else None
         github_ver = get_github_version(app)
         needs_upd  = bool(
@@ -837,7 +845,7 @@ def check_updates(status: dict[str, dict]) -> None:
 
 
 def _update_app(app: dict) -> None:
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
     info(f"Updating {app['name']}…")
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                  capture_output=True, text=True, env=_git_env())
@@ -861,10 +869,10 @@ def _run_install_py(install_dir: Path) -> None:
 
 
 def install_app(app: dict) -> None:
-    """Clone repo into INSTALL_BASE and run install.py."""
+    """Clone repo into INSTALL_BASE (or app install_path) and run install.py."""
     _ensure_gh_creds()
-    INSTALL_BASE.mkdir(parents=True, exist_ok=True)
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
+    install_dir.parent.mkdir(parents=True, exist_ok=True)
     git_env     = _git_env()
 
     if install_dir.is_dir():
@@ -887,7 +895,7 @@ def install_app(app: dict) -> None:
 
 def uninstall_app(app: dict) -> None:
     """Stop/disable service (if any), remove symlinks, delete install directory."""
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
 
     # ── Service removal ──────────────────────────────────────────────────────
     svc = app.get("service")
@@ -914,7 +922,7 @@ def uninstall_app(app: dict) -> None:
     }
     for ln in link_names:
         lk = bin_dir / ln
-        if lk.is_symlink() and str(lk.resolve()).startswith(str(INSTALL_BASE)):
+        if lk.is_symlink() and str(lk.resolve()).startswith(str(_install_dir(app))):
             lk.unlink()
             info(f"Removed symlink: {lk}")
 
@@ -1479,7 +1487,7 @@ def _merge_app_phases(app_names: list) -> dict:
     seen:   dict = {k: set() for k in _PKG_VARS}
 
     for name in app_names:
-        d = INSTALL_BASE / APP_INDEX[name]["repo"]
+        d = _install_dir(APP_INDEX[name])
         pkgs = _extract_packages_ast(d)
         for key in _PKG_VARS:
             for item in pkgs.get(key, []):
@@ -1810,8 +1818,8 @@ def install_apps_phased(app_names: list) -> None:
     # Step 1: clone / pull all repos first
     for name in app_names:
         app         = APP_INDEX[name]
-        install_dir = INSTALL_BASE / app["repo"]
-        INSTALL_BASE.mkdir(parents=True, exist_ok=True)
+        install_dir = _install_dir(app)
+        install_dir.parent.mkdir(parents=True, exist_ok=True)
         if install_dir.is_dir():
             info(f"{name} already present — pulling latest…")
             _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
@@ -1845,7 +1853,7 @@ def install_apps_phased(app_names: list) -> None:
 
     # Step 4: run any app-specific post-install steps via install.py
     for name in app_names:
-        install_dir = INSTALL_BASE / APP_INDEX[name]["repo"]
+        install_dir = _install_dir(APP_INDEX[name])
         installer   = install_dir / "install.py"
         if installer.exists():
             info(f"Running post-install steps from {name}/install.py…")
@@ -2106,7 +2114,7 @@ def _do_upgrade(status: dict) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def _push_app_to_github(app: dict, status: dict) -> None:
     """Run git add *, commit, and push origin main from within the app's repo dir."""
-    install_dir = INSTALL_BASE / app["repo"]
+    install_dir = _install_dir(app)
     name        = app["name"]
     info(f"Pushing {name}…")
 
@@ -2336,7 +2344,7 @@ def main() -> None:
             # Refresh status entries for apps that changed
             for name in selection.get("to_install", []):
                 app = APP_INDEX[name]
-                status[name]["installed"]      = (INSTALL_BASE / app["repo"]).is_dir()
+                status[name]["installed"]      = _install_dir(app).is_dir()
                 status[name]["local_ver"]      = get_local_version(app)
                 status[name]["service_status"] = get_service_status(app)
                 status[name]["needs_update"]   = False
