@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.5.4"
+VERSION      = "1.5.6"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -68,6 +68,41 @@ _GH_CREDS: dict        = {"user": "", "token": ""}
 _ASKPASS_PATH: list    = [None]   # mutable box so atexit can see it
 
 
+def _read_token_from_tty(prompt: str) -> str:
+    """Read a secret directly from /dev/tty with echo disabled.
+    More reliable than getpass under sudo on macOS/Linux."""
+    try:
+        import termios, tty as _tty
+        with open("/dev/tty", "r+", buffering=1) as ttyf:
+            ttyf.write(prompt)
+            ttyf.flush()
+            old_attrs = termios.tcgetattr(ttyf.fileno())
+            try:
+                _tty.setraw(ttyf.fileno())
+                chars: list = []
+                while True:
+                    ch = os.read(ttyf.fileno(), 1).decode("utf-8", errors="replace")
+                    if ch in ("\n", "\r"):
+                        break
+                    if ch in ("\x7f", "\x08"):   # backspace / DEL
+                        if chars:
+                            chars.pop()
+                    elif ch == "\x03":            # Ctrl-C
+                        raise KeyboardInterrupt
+                    elif ch == "\x15":            # Ctrl-U — clear line
+                        chars.clear()
+                    else:
+                        chars.append(ch)
+                ttyf.write("\n")
+                ttyf.flush()
+                return "".join(chars).strip()
+            finally:
+                termios.tcsetattr(ttyf.fileno(), termios.TCSADRAIN, old_attrs)
+    except (ImportError, OSError):
+        # Non-POSIX or no /dev/tty — fall back to getpass
+        return getpass.getpass(prompt).strip()
+
+
 def _ensure_gh_creds() -> None:
     """Prompt for GitHub credentials once; no-op if already cached."""
     if _GH_CREDS["token"]:
@@ -76,10 +111,19 @@ def _ensure_gh_creds() -> None:
           "(for private repos — press Enter to skip)")
     try:
         user  = input("  Username: ").strip()
-        token = getpass.getpass("  Personal Access Token: ").strip()
+        token = _read_token_from_tty("  Personal Access Token: ")
     except (EOFError, KeyboardInterrupt):
         print()
         return
+    # Sanity-check: GitHub PATs are 40+ chars (classic) or 93+ (fine-grained).
+    # If we got something suspiciously short, getpass may have read from a broken
+    # stdin under sudo — fall back to a visible input with an explicit warning.
+    if token and len(token) < 20:
+        warn(f"Token appears truncated ({len(token)} chars) — re-enter with visible input:")
+        try:
+            token = input("  Personal Access Token (visible): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            token = ""
     _GH_CREDS["user"]  = user
     _GH_CREDS["token"] = token
     # Invalidate any existing askpass script so it gets rebuilt with new creds
@@ -494,6 +538,60 @@ def get_local_version(app: dict) -> Optional[str]:
         except Exception:
             pass
     return "unknown"
+
+
+def _check_github_connection() -> None:
+    """Test GitHub API reachability and credential validity; print status."""
+    # 1 — Network reachability
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/rate_limit",
+            headers={"User-Agent": f"Arsenal/{VERSION}",
+                     "Accept":     "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=6) as r:
+            rl = json.loads(r.read())
+        unauth_remaining = rl.get("rate", {}).get("remaining", 0)
+    except urllib.error.URLError as e:
+        err(f"GitHub unreachable: {e.reason}")
+        return
+    except Exception as e:
+        err(f"GitHub unreachable: {type(e).__name__}: {e}")
+        return
+
+    ok("github.com reachable")
+
+    # 2 — Credential check (only if a token was entered)
+    token = _GH_CREDS.get("token", "")
+    if not token:
+        warn("No GitHub credentials entered — private repo versions will show '?'")
+        return
+
+    tok_len = len(token)
+    auth_hdrs = {"User-Agent": f"Arsenal/{VERSION}",
+                 "Accept":     "application/vnd.github+json",
+                 "Authorization": f"Bearer {token}"}
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/rate_limit",
+            headers=auth_hdrs,
+        )
+        with urllib.request.urlopen(req, timeout=6) as r:
+            data = json.loads(r.read())
+        authed_remaining = data.get("rate", {}).get("remaining", 0)
+        authed_limit     = data.get("rate", {}).get("limit", 0)
+        if authed_limit > 60:
+            ok(f"GitHub credentials accepted  ({authed_remaining}/{authed_limit} API calls remaining)")
+        else:
+            # Authenticated requests get 5000/hr; if limit is still 60 the token wasn't accepted
+            warn(f"GitHub credentials may not have been accepted (rate limit unchanged — token {tok_len} chars, check token scope/expiry)")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            err(f"GitHub credentials rejected (401 Unauthorized) — token captured {tok_len} chars; may be expired, wrong scope, or truncated")
+        else:
+            warn(f"GitHub credential check returned HTTP {e.code} (token {tok_len} chars)")
+    except Exception as e:
+        warn(f"GitHub credential check failed: {type(e).__name__}: {e}")
 
 
 def get_github_version(app: dict) -> Optional[str]:
@@ -2284,6 +2382,9 @@ def main() -> None:
 
     # Prompt for GitHub credentials once for the entire session
     _ensure_gh_creds()
+
+    # Verify GitHub reachability and credential validity before loading versions
+    _check_github_connection()
 
     # Initial status load
     status = load_status()
