@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.5.6"
+VERSION      = "1.5.7"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -1542,6 +1542,25 @@ def _extract_packages_ast(install_dir: Path) -> dict:
     return result
 
 
+def _extract_offline_bundles(install_dir: Path) -> dict:
+    """Parse OFFLINE_BUNDLE_URLS dict from an install.py via AST."""
+    installer = install_dir / "install.py"
+    if not installer.exists():
+        return {}
+    try:
+        tree = ast.parse(installer.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == "OFFLINE_BUNDLE_URLS":
+                    try:
+                        return ast.literal_eval(node.value)
+                    except Exception:
+                        pass
+    return {}
+
 
 def _normalise_pkg_item(key: str, item) -> list:
     """Normalise any package-list entry format to [identifier, description].
@@ -1579,9 +1598,10 @@ def _normalise_pkg_item(key: str, item) -> list:
 def _merge_app_phases(app_names: list) -> dict:
     """
     Collect and deduplicate packages from every app in app_names.
-    Returns dict keyed by _PKG_VARS entries.
+    Returns dict keyed by _PKG_VARS entries plus OFFLINE_BUNDLE_URLS.
     """
     merged: dict = {k: [] for k in _PKG_VARS}
+    merged["OFFLINE_BUNDLE_URLS"] = {}
     seen:   dict = {k: set() for k in _PKG_VARS}
 
     for name in app_names:
@@ -1594,6 +1614,7 @@ def _merge_app_phases(app_names: list) -> dict:
                 if dk and dk not in seen[key]:
                     seen[key].add(dk)
                     merged[key].append(norm)
+        merged["OFFLINE_BUNDLE_URLS"].update(_extract_offline_bundles(d))
     return merged
 
 
@@ -1808,8 +1829,71 @@ def _phase_system(merged: dict, os_type: str) -> None:
             _log("system", pkg, desc, False, error=str(exc))
 
 
+def _install_offline_bundle_arsenal(pkg_name: str, url: str) -> bool:
+    """Download a pre-built offline bundle from GitHub and run install_offline.sh.
+    Handles both single .tar.gz files and split .part.* files."""
+    info(f"Trying offline bundle: {pkg_name} …")
+    _tmp = tempfile.mkdtemp(prefix=f"arsenal_bundle_{pkg_name}_")
+    _tarball = os.path.join(_tmp, f"{pkg_name}_offline_kali.tar.gz")
+    _downloaded = False
+    try:
+        try:
+            urllib.request.urlretrieve(url, _tarball)
+            _downloaded = True
+        except Exception:
+            # Single file unavailable — try split parts (.part.aa, .part.ab, ...)
+            _base = url.rsplit("/", 1)[0]
+            _parts = []
+            for _a in "abcdefghijklmnopqrstuvwxyz":
+                for _b in "abcdefghijklmnopqrstuvwxyz":
+                    _sfx = _a + _b
+                    _pu = f"{_base}/{pkg_name}_offline_kali.part.{_sfx}"
+                    _pp = os.path.join(_tmp, f"part.{_sfx}")
+                    try:
+                        urllib.request.urlretrieve(_pu, _pp)
+                        _parts.append(_pp)
+                    except Exception:
+                        break
+            if _parts:
+                info(f"  Reassembling {len(_parts)} part(s) for {pkg_name} …")
+                with open(_tarball, "wb") as _out:
+                    for _p in sorted(_parts):
+                        with open(_p, "rb") as _f:
+                            _out.write(_f.read())
+                _downloaded = True
+
+        if not _downloaded:
+            warn(f"Could not download offline bundle for {pkg_name}")
+            return False
+
+        if subprocess.run(["tar", "xzf", _tarball, "-C", _tmp],
+                          capture_output=True).returncode != 0:
+            warn(f"Failed to extract offline bundle for {pkg_name}")
+            return False
+
+        _install_sh = None
+        for _root, _dirs, _files in os.walk(_tmp):
+            if "install_offline.sh" in _files:
+                _install_sh = os.path.join(_root, "install_offline.sh")
+                break
+
+        if not _install_sh:
+            warn(f"install_offline.sh not found in {pkg_name} bundle")
+            return False
+
+        os.chmod(_install_sh, 0o755)
+        r_sh = subprocess.run(["bash", _install_sh],
+                               capture_output=True, text=True, timeout=300)
+        _ok = r_sh.returncode == 0
+        _log("bundle", pkg_name, url, _ok, stdout=r_sh.stdout, stderr=r_sh.stderr)
+        return _ok
+    finally:
+        shutil.rmtree(_tmp, ignore_errors=True)
+
+
 def _phase_pip(merged: dict) -> None:
     print(f"\n{_BLD}── Phase: pip packages ───────────────────────────────{_R}")
+    _offline_urls = merged.get("OFFLINE_BUNDLE_URLS", {})
     for item in merged.get("PIP_PACKAGES", []):
         spec, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
         try:
@@ -1819,6 +1903,11 @@ def _phase_pip(merged: dict) -> None:
                 capture_output=True, text=True, timeout=180)
             _log("pip", spec, desc, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
+            if r.returncode != 0 and _offline_urls:
+                _pkg_name = spec.split(">=")[0].split("==")[0].split("[")[0].strip()
+                if _pkg_name in _offline_urls:
+                    warn(f"pip failed for {_pkg_name} — trying offline bundle …")
+                    _install_offline_bundle_arsenal(_pkg_name, _offline_urls[_pkg_name])
         except Exception as exc:
             _log("pip", spec, desc, False, error=str(exc))
 
