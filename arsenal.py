@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.5.10"
+VERSION      = "1.6.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -250,6 +250,7 @@ APPS: list[dict] = [
         "repo":        "Quiver",
         "github_url":  "https://github.com/pr0t31n/Quiver.git",
         "description": "Hardware hacking command centre — 45-device registry with SSH, serial, and WebSocket shells for Hak5 and offensive security hardware.",
+        "short_desc":  "Hak5 Device Manager",
         "port":        5200,
         "flask":       True,
         "main_file":   "app.py",
@@ -261,6 +262,7 @@ APPS: list[dict] = [
         "repo":        "Aether",
         "github_url":  "https://github.com/pr0t31n/Aether.git",
         "description": "Five-phase wireless pentest orchestrator — WPA/WPA2/WPA3 handshake capture, WPA-Enterprise credential harvesting, Dragonblood, and KRACK testing.",
+        "short_desc":  "WiFi",
         "port":        None,
         "flask":       False,
         "main_file":   "aether.py",
@@ -272,6 +274,7 @@ APPS: list[dict] = [
         "repo":        "Aether-Z",
         "github_url":  "https://github.com/pr0t31n/Aether-Z.git",
         "description": "Multi-phase ZigBee / IEEE 802.15.4 pentest orchestrator — RF survey, network key recovery via join intercept, ZLL touchlink attacks, replay testing, and firmware analysis.",
+        "short_desc":  "ZigBee",
         "port":        None,
         "flask":       False,
         "main_file":   "aether_z.py",
@@ -283,6 +286,7 @@ APPS: list[dict] = [
         "repo":        "Aether-B",
         "github_url":  "https://github.com/pr0t31n/Aether-B.git",
         "description": "Multi-phase Bluetooth BR/EDR & BLE pentest orchestrator — KNOB, BIAS, BLUFFS, BLE legacy pairing cracking, GATT enumeration, GATTacker MITM, and BlueToolkit CVE exploitation.",
+        "short_desc":  "Bluetooth",
         "port":        None,
         "flask":       False,
         "main_file":   "aether_b.py",
@@ -294,6 +298,7 @@ APPS: list[dict] = [
         "repo":        "Aether-U",
         "github_url":  "https://github.com/pr0t31n/Aether-U.git",
         "description": "Multi-phase UWB / RTLS pentest orchestrator — Ghost Peak distance-reduction, RTLS console default-credential attacks, unauthenticated MQTT exploitation, position injection, and SQLi.",
+        "short_desc":  "UWB / RTLS",
         "port":        None,
         "flask":       False,
         "main_file":   "aether_u.py",
@@ -305,6 +310,7 @@ APPS: list[dict] = [
         "repo":        "Spectre",
         "github_url":  "https://github.com/pr0t31n/Spectre.git",
         "description": "Web dashboard for Aether wireless assessments — real-time phase tracking, findings streaming, and session management via browser.",
+        "short_desc":  "Wireless Assessments",
         "port":        5300,
         "flask":       True,
         "main_file":   "app.py",
@@ -316,6 +322,7 @@ APPS: list[dict] = [
         "repo":        "Gearbox",
         "github_url":  "https://github.com/pr0t31n/Gearbox.git",
         "description": "Hardware security assessment CLI — orchestrates nmap, Nessus, sslscan, nuclei, Responder, and 20+ tools into structured pentest workflows.",
+        "short_desc":  "Hardware / IoT",
         "port":        None,
         "flask":       False,
         "main_file":   "gearbox.py",
@@ -327,6 +334,7 @@ APPS: list[dict] = [
         "repo":        "Gauntlet",
         "github_url":  "https://github.com/pr0t31n/Gauntlet.git",
         "description": "Web platform for Gearbox hardware assessments — multi-tool session orchestration, real-time findings streaming, and interactive assessment dashboard.",
+        "short_desc":  "Hardware Assessments",
         "port":        5700,
         "flask":       True,
         "main_file":   "app.py",
@@ -338,6 +346,7 @@ APPS: list[dict] = [
         "repo":        "Pivot",
         "github_url":  "https://github.com/pr0t31n/Pivot.git",
         "description": "mTLS-authenticated SOCKS5 relay daemon — asyncio agent/client for secure network pivoting with transparent iptables proxy support.",
+        "short_desc":  "mTLS SOCKS5 Relay",
         "port":        None,
         "flask":       False,
         "main_file":   "pivot/agent/main.py",
@@ -349,6 +358,7 @@ APPS: list[dict] = [
         "repo":        "Vantage",
         "github_url":  "https://github.com/pr0t31n/Vantage.git",
         "description": "Recon platform — orchestrates Scattershot3 network pentest and OSift OSINT in a unified session-managed dashboard with live findings streaming.",
+        "short_desc":  "Network & OSINT Recon",
         "port":        5100,
         "flask":       True,
         "main_file":   "app.py",
@@ -360,6 +370,7 @@ APPS: list[dict] = [
         "repo":        "OSift",
         "github_url":  "https://github.com/pr0t31n/OSift.git",
         "description": "Comprehensive OSINT framework — 19 recon phases: DNS, breach intelligence, GitHub secret detection, cloud asset discovery, and M365 enumeration.",
+        "short_desc":  "OSINT",
         "port":        None,
         "flask":       False,
         "main_file":   "osift.py",
@@ -371,6 +382,7 @@ APPS: list[dict] = [
         "repo":        "Scattershot3",
         "github_url":  "https://github.com/pr0t31n/Scattershot3.git",
         "description": "Network pentest recon — 13-phase pipeline: host discovery, port scanning, TLS analysis, AD/Kerberos enumeration, and web application testing.",
+        "short_desc":  "Network",
         "port":        None,
         "flask":       False,
         "main_file":   "scattershot3.py",
@@ -382,6 +394,7 @@ APPS: list[dict] = [
         "repo":        "Mole",
         "github_url":  "https://github.com/pr0t31n/Mole.git",
         "description": "Go-based SOCKS5 + DNS proxy — transparent relay with iptables/pf integration for DNS interception and tunnelling through pivot points.",
+        "short_desc":  "SOCKS5 / DNS Proxy",
         "port":        None,
         "flask":       False,
         "main_file":   "cmd/client/main.go",
@@ -393,6 +406,7 @@ APPS: list[dict] = [
         "repo":        "Nexus",
         "github_url":  "https://github.com/pr0t31n/Nexus.git",
         "description": "Central hub — discovers and monitors all pr0t31n and third-party security tool instances across every network interface in real time.",
+        "short_desc":  "Tool Hub & Monitor",
         "port":        5400,
         "flask":       True,
         "main_file":   "app.py",
@@ -404,6 +418,7 @@ APPS: list[dict] = [
         "repo":        "Fracture",
         "github_url":  "https://github.com/pr0t31n/Fracture.git",
         "description": "Multi-phase web application pentest orchestrator — OWASP Top 10 2025 coverage: injection, auth bypass, IDOR, SSRF, CSRF, session attacks, and sensitive file exposure.",
+        "short_desc":  "WebApp",
         "port":        None,
         "flask":       False,
         "main_file":   "fracture.py",
@@ -415,6 +430,7 @@ APPS: list[dict] = [
         "repo":        "Siphon",
         "github_url":  "https://github.com/pr0t31n/Siphon.git",
         "description": "Multi-phase API pentest orchestrator — OWASP API Top 10 2023 coverage: BOLA, BFLA, mass assignment, JWT attacks, rate limit bypass, and data exposure testing.",
+        "short_desc":  "API",
         "port":        None,
         "flask":       False,
         "main_file":   "siphon.py",
@@ -422,21 +438,35 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Auger",
+        "repo":        "Auger",
+        "github_url":  "https://github.com/pr0t31n/Auger.git",
+        "description": "Read-only database security auditor — MySQL, PostgreSQL, MSSQL, Oracle, MongoDB, Redis, Cassandra, Elasticsearch and more. Maps findings to OWASP ASVS, ISO 27001, PCI DSS, HIPAA, and NIST SP 800-53.",
+        "short_desc":  "Database",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "auger.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Crucible",
         "repo":        "Crucible",
         "github_url":  "https://github.com/pr0t31n/Crucible.git",
-        "description": "Web app and API pentest platform — orchestrates Fracture and Siphon in a unified session-managed dashboard with live findings streaming.",
+        "description": "Web app, API and database pentest platform — orchestrates Fracture, Siphon and Auger in a unified session-managed dashboard with live findings streaming.",
+        "short_desc":  "WebApp · API · Database",
         "port":        5500,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-crucible",
-        "requires":    ["Fracture", "Siphon"],
+        "requires":    ["Fracture", "Siphon", "Auger"],
     },
     {
         "name":        "AuthProbe",
         "repo":        "AuthProbe",
         "github_url":  "https://github.com/pr0t31n/AuthProbe.git",
         "description": "Detects and probes authentication methods on web apps and APIs. Identifies Basic, Digest, NTLM, Bearer, OAuth2/OIDC, form login, session cookies, API keys, and Kerberos. Validates credentials and recommends the best method for Fracture/Siphon.",
+        "short_desc":  "Auth Detection",
         "port":        None,
         "flask":       False,
         "main_file":   "authprobe.py",
@@ -448,6 +478,7 @@ APPS: list[dict] = [
         "repo":        "Bastion",
         "github_url":  "https://github.com/pr0t31n/Bastion.git",
         "description": "Firewall and network policy analysis platform — uploads configs for automated audit, vulnerability identification, and compliance reporting.",
+        "short_desc":  "Firewall Analysis",
         "port":        5600,
         "flask":       True,
         "main_file":   "app.py",
@@ -460,6 +491,7 @@ APPS: list[dict] = [
         "install_path": "/Users/pr0t31n/Prometheus",
         "github_url":   "https://github.com/pr0t31n/Prometheus.git",
         "description": "Unified pentest report engine — ingests findings from Fracture, Siphon, Scattershot3, Gearbox, Bastion, OSift, and Aether to produce correlated Excel and HTML reports.",
+        "short_desc":  "Report Engine",
         "port":        None,
         "flask":       False,
         "main_file":   "prometheus.py",
@@ -471,15 +503,77 @@ APPS: list[dict] = [
         "repo":        "Arbiter",
         "github_url":  "https://github.com/pr0t31n/Arbiter.git",
         "description": "Security orchestration platform — aggregates, correlates, and enriches findings from all pr0t31n tools into a unified client dashboard with compliance mapping (NIST, OWASP, PCI DSS, ISO 27001, MITRE ATT&CK) and cross-tool analysis.",
+        "short_desc":  "Pentest Orchestration",
         "port":        5000,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-arbiter",
         "requires":    [],
     },
+    {
+        "name":        "pAIn",
+        "repo":        "pAIn",
+        "github_url":  "https://github.com/pr0t31n/pAIn.git",
+        "description": "AI pipeline red-team evaluation tool — tests transcription and classification AI systems for prompt injection via embedded payloads in PDF, image, and audio file metadata, content layers, and spoken audio content.",
+        "short_desc":  "AI Red-Team",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "pain.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Arsenal",
+        "repo":        "Arsenal",
+        "install_path": "/opt/Arsenal",
+        "github_url":  "https://github.com/pr0t31n/Arsenal.git",
+        "description": "Installer and manager for the pr0t31n toolkit — checks, installs, updates, and uninstalls all pr0t31n tools.",
+        "short_desc":  "Toolkit Manager",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "arsenal.py",
+        "service":     None,
+        "requires":    [],
+    },
 ]
 
 APP_INDEX: dict[str, dict] = {a["name"]: a for a in APPS}
+
+
+def _build_display_items() -> list[dict]:
+    """
+    Build the ordered display list for the curses menu.
+
+    Layout:
+      • Every Flask app at the top level, sorted alphabetically.
+      • Each Flask app's required tools indented below it, sorted alphabetically.
+      • All remaining standalone tools (not managed by any Flask app) at the
+        top level after the Flask block, sorted alphabetically.
+    """
+    managed: set[str] = set()
+    for a in APPS:
+        if a["flask"]:
+            for req in a.get("requires", []):
+                managed.add(req)
+
+    items: list[dict] = []
+    for fa in sorted((a for a in APPS if a["flask"]), key=lambda a: a["name"].lower()):
+        items.append({"app": fa, "indent": 0})
+        for child_name in sorted(fa.get("requires", [])):
+            child = APP_INDEX.get(child_name)
+            if child:
+                items.append({"app": child, "indent": 1})
+
+    for sa in sorted(
+        (a for a in APPS if not a["flask"] and a["name"] not in managed),
+        key=lambda a: a["name"].lower(),
+    ):
+        items.append({"app": sa, "indent": 0})
+
+    return items
+
+
+_DISPLAY_ITEMS: list[dict] = _build_display_items()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -721,21 +815,73 @@ def get_service_status(app: dict) -> str:
         return ""
     try:
         if SYSTEM == "Linux":
-            r = subprocess.run(
-                ["systemctl", "is-active", svc],
-                capture_output=True, text=True, timeout=4,
-            )
-            return r.stdout.strip() or "unknown"
-        if SYSTEM == "Darwin":
+            if shutil.which("systemctl"):
+                r = subprocess.run(
+                    ["systemctl", "is-active", svc],
+                    capture_output=True, text=True, timeout=4,
+                )
+                return r.stdout.strip() or "unknown"
+            # SysVinit / OpenRC fallback
+            if shutil.which("service"):
+                r = subprocess.run(
+                    ["service", svc, "status"],
+                    capture_output=True, text=True, timeout=4,
+                )
+                return "running" if r.returncode == 0 else "stopped"
+        elif SYSTEM == "Darwin":
             label = f"com.pr0t31n.{app['name'].lower()}"
             r = subprocess.run(
                 ["launchctl", "list", label],
                 capture_output=True, text=True, timeout=4,
             )
             return "running" if r.returncode == 0 else "stopped"
+        elif SYSTEM == "Windows":
+            r = subprocess.run(
+                ["sc", "query", svc],
+                capture_output=True, text=True, timeout=6,
+            )
+            return "running" if "RUNNING" in r.stdout else "stopped"
+        else:
+            # FreeBSD / NetBSD: service(8)
+            if shutil.which("service"):
+                r = subprocess.run(
+                    ["service", svc, "status"],
+                    capture_output=True, text=True, timeout=4,
+                )
+                return "running" if r.returncode == 0 else "stopped"
+            # OpenBSD: rcctl(8)
+            if shutil.which("rcctl"):
+                r = subprocess.run(
+                    ["rcctl", "check", svc],
+                    capture_output=True, text=True, timeout=4,
+                )
+                return "running" if r.returncode == 0 else "stopped"
     except Exception:
         pass
     return "unknown"
+
+
+def get_running_version(app: dict) -> str:
+    """Probe the live Flask app's /api/nexus-status for its running version."""
+    if not app.get("flask") or not app.get("port"):
+        return ""
+    import ssl as _ssl
+    port = app["port"]
+    ctx = _ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = _ssl.CERT_NONE
+    for scheme, extra in (("https", {"context": ctx}), ("http", {})):
+        try:
+            url = f"{scheme}://127.0.0.1:{port}/api/nexus-status"
+            req = urllib.request.Request(url, headers={"User-Agent": f"Arsenal/{VERSION}"})
+            with urllib.request.urlopen(req, timeout=2, **extra) as r:
+                data = json.loads(r.read())
+                v = str(data.get("version") or "").strip()
+                if v:
+                    return v
+        except Exception:
+            pass
+    return ""
 
 
 
@@ -863,16 +1009,47 @@ def load_status() -> dict[str, dict]:
             and github_ver
             and local_ver not in ("unknown", github_ver)
         )
-        svc_status = (get_service_status(app)
-                      if installed and app["flask"] else "")
+        svc_status  = (get_service_status(app)
+                       if installed and app["flask"] else "")
+        running_ver = (get_running_version(app)
+                       if installed and app["flask"] else "")
         status[app["name"]] = {
             "installed":      installed,
             "local_ver":      local_ver,
             "github_ver":     github_ver,
             "needs_update":   needs_upd,
             "service_status": svc_status,
+            "running_ver":    running_ver,
         }
     return status
+
+
+def refresh_local_status(status: dict[str, dict]) -> None:
+    """
+    Refresh installed/local_ver/service_status for every app in-place.
+    Does NOT re-fetch GitHub versions (keeps the existing github_ver).
+    Fast: reads VERSION files and checks service status only.
+    """
+    for app in APPS:
+        name      = app["name"]
+        installed = _install_dir(app).is_dir()
+        status[name]["installed"] = installed
+        if installed:
+            lv = get_local_version(app)
+            status[name]["local_ver"] = lv
+            gv = status[name].get("github_ver") or ""
+            status[name]["needs_update"] = bool(
+                lv and gv and lv not in ("unknown", gv)
+                and _version_gt(gv, lv)
+            )
+            if app["flask"]:
+                status[name]["service_status"] = get_service_status(app)
+                status[name]["running_ver"]    = get_running_version(app)
+        else:
+            status[name]["local_ver"]      = None
+            status[name]["service_status"] = ""
+            status[name]["running_ver"]    = ""
+            status[name]["needs_update"]   = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1143,35 +1320,38 @@ def _curses_menu(
         p              — push checked tools whose local ver is newer
         r              — restart Flask app under cursor
         R              — restart all checked installed Flask apps
+        f              — refresh local versions and service status
         q              — quit without changes
     """
     curses.curs_set(0)
     _init_colors()
 
-    N = len(APPS)
+    N = len(_DISPLAY_ITEMS)
 
     # Checkboxes start unchecked — install state is displayed separately
     desired: dict[str, bool] = {a["name"]: False for a in APPS}
 
     # Navigation: rows 0..N-1 = apps, then action buttons
-    ROW_INSTALL   = N
-    ROW_UNINSTALL = N + 1
-    ROW_UPGRADE   = N + 2
-    ROW_PUSH      = N + 3
-    ROW_REFRESH   = N + 4
-    ROW_QUIT      = N + 5
-    TOTAL         = N + 6
+    ROW_INSTALL        = N
+    ROW_UNINSTALL      = N + 1
+    ROW_UPGRADE        = N + 2
+    ROW_PUSH           = N + 3
+    ROW_RESTART        = N + 4
+    ROW_REFRESH_STATUS = N + 5
+    ROW_QUIT           = N + 6
+    TOTAL              = N + 7
     cursor = 0
     scroll = 0  # index of first visible app row in viewport
 
     # Fixed column offsets for the row format:
-    # "  [x]  ●  name<14  lv<9  gv<9  port<6  desc"
-    #  01234567890123456789012345678901234567890123456789
-    #  0         1         2         3         4
+    # "  [x]  ●  name<18  lv<9  gv<9  rv<9  port<6  desc"
+    #  01234567890123456789012345678901234567890123456789012
+    #  0         1         2         3         4         5
     COL_CHK  = 2
     COL_INST = 7
-    COL_LV   = 26
-    COL_GV   = 37
+    COL_LV   = 30
+    COL_GV   = 41
+    COL_RV   = 52
 
     while True:
         stdscr.erase()
@@ -1190,8 +1370,8 @@ def _curses_menu(
                       curses.color_pair(_CP_HEADER) | curses.A_BOLD)
 
         col_hdr = (
-            f"  {'SEL':3}  {'':1}  {'Application':<14}  "
-            f"{'Inst.Ver':<9}  {'Latest':<9}  {'Port':<6}  Description"
+            f"  {'SEL':3}  {'':1}  {'Application':<18}  "
+            f"{'Inst.Ver':<9}  {'Latest':<9}  {'Running':<9}  {'Port':<6}  Description"
         )
         stdscr.addstr(1, 0, col_hdr[:safe_x], curses.color_pair(_CP_HEADER))
 
@@ -1219,11 +1399,13 @@ def _curses_menu(
             if row_idx >= N:
                 break
 
-            app  = APPS[row_idx]
-            name = app["name"]
-            st   = status[name]
-            d    = desired[name]
-            orig = st["installed"]
+            _di      = _DISPLAY_ITEMS[row_idx]
+            app      = _di["app"]
+            _indent  = _di["indent"]
+            name     = app["name"]
+            st       = status[name]
+            d        = desired[name]
+            orig     = st["installed"]
 
             # Checkbox: checked/unchecked only — install state shown separately
             if d:
@@ -1237,17 +1419,20 @@ def _curses_menu(
             else:
                 inst_marker, inst_cp = "○", _CP_UNCKD
 
-            lv_raw = st["local_ver"]  or ""
-            gv_raw = st["github_ver"] or ""
+            lv_raw = st["local_ver"]   or ""
+            gv_raw = st["github_ver"]  or ""
+            rv_raw = st.get("running_ver", "") or ""
             lv     = lv_raw or "—"
             gv     = gv_raw or "?"
+            rv     = rv_raw or ("—" if app["flask"] else "")
             port   = str(app["port"]) if app["port"] else "—"
 
-            desc_w   = max(10, safe_x - 58)
-            desc     = app["description"][:desc_w]
+            name_col = ("  ↳ " + name) if _indent else name
+            desc_w   = max(0, safe_x - 73)
+            desc     = app.get("short_desc", app["description"])[:desc_w] if desc_w > 0 else ""
 
             row_text = (
-                f"  {chk}  {inst_marker}  {name:<14}  {lv:<9}  {gv:<9}  {port:<6}  {desc}"
+                f"  {chk}  {inst_marker}  {name_col:<18}  {lv:<9}  {gv:<9}  {rv:<9}  {port:<6}  {desc}"
             )
 
             is_on = (row_idx == cursor)
@@ -1281,6 +1466,19 @@ def _curses_menu(
                         stdscr.addstr(screen_y, COL_GV,
                                       f"{gv:<9}"[:safe_x - COL_GV],
                                       curses.color_pair(_CP_VER_OLD))
+
+                # Re-paint running version column (Flask apps only, skip hilite row)
+                if not is_on and app["flask"] and COL_RV < safe_x:
+                    if rv_raw and lv_raw and rv_raw != lv_raw:
+                        # Running a different version than what's on disk → yellow
+                        stdscr.addstr(screen_y, COL_RV,
+                                      f"{rv:<9}"[:safe_x - COL_RV],
+                                      curses.color_pair(_CP_UPGRADE_BTN))
+                    elif rv_raw and COL_RV < safe_x:
+                        # Running matches installed → green
+                        stdscr.addstr(screen_y, COL_RV,
+                                      f"{rv:<9}"[:safe_x - COL_RV],
+                                      curses.color_pair(_CP_CHECKED))
             except curses.error:
                 pass
 
@@ -1328,11 +1526,11 @@ def _curses_menu(
             )
             for n in checked_names
         )
-        can_refresh = any(
-            APPS[i]["flask"]
-            and status[APPS[i]["name"]]["installed"]
-            and desired[APPS[i]["name"]]
-            for i in range(N)
+        can_restart = any(
+            item["app"]["flask"]
+            and status[item["app"]["name"]]["installed"]
+            and desired[item["app"]["name"]]
+            for item in _DISPLAY_ITEMS
         )
 
         install_attr = (
@@ -1355,10 +1553,14 @@ def _curses_menu(
             else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_push
             else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
         )
-        refresh_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_REFRESH
-            else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD) if can_refresh
+        restart_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_RESTART
+            else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD) if can_restart
             else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+        )
+        refresh_status_attr = (
+            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_REFRESH_STATUS
+            else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD)
         )
         quit_attr = (
             (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_QUIT
@@ -1370,14 +1572,15 @@ def _curses_menu(
             stdscr.addstr(fy + 1, 15, "[ Uninstall ]", uninstall_attr)
             stdscr.addstr(fy + 1, 30, "[ Upgrade ]",   upgrade_attr)
             stdscr.addstr(fy + 1, 43, "[ Push ]",      push_attr)
-            stdscr.addstr(fy + 1, 53, "[ Restart ]",   refresh_attr)
-            stdscr.addstr(fy + 1, 66, "[ Quit ]",      quit_attr)
+            stdscr.addstr(fy + 1, 53, "[ Restart ]",   restart_attr)
+            stdscr.addstr(fy + 1, 66, "[ Refresh ]",   refresh_status_attr)
+            stdscr.addstr(fy + 1, 79, "[ Quit ]",      quit_attr)
         except curses.error:
             pass
 
         try:
             hint = ("  ↑/↓: navigate   SPC: select   "
-                    "i: install   x: uninstall   U: upgrade   p: push   r: restart   q: quit")
+                    "i: install   x: uninstall   U: upgrade   p: push   r: restart   f: refresh   q: quit")
             stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
         except curses.error:
             pass
@@ -1403,7 +1606,7 @@ def _curses_menu(
 
         elif key in (ord(" "), curses.KEY_ENTER, ord("\n"), ord("\r")):
             if cursor < N:
-                desired[APPS[cursor]["name"]] = not desired[APPS[cursor]["name"]]
+                desired[_DISPLAY_ITEMS[cursor]["app"]["name"]] = not desired[_DISPLAY_ITEMS[cursor]["app"]["name"]]
             elif cursor == ROW_INSTALL:
                 if can_install:
                     to_install = [n for n in checked_names
@@ -1422,7 +1625,7 @@ def _curses_menu(
             elif cursor == ROW_PUSH:
                 if can_push:
                     return {"action": "push_to_github"}
-            elif cursor == ROW_REFRESH:
+            elif cursor == ROW_RESTART:
                 _flask_checked = [
                     n for n in checked_names
                     if any(a["flask"] and a["name"] == n for a in APPS)
@@ -1431,6 +1634,8 @@ def _curses_menu(
                 if _flask_checked:
                     return {"action": "execute", "to_install": [], "to_uninstall": [],
                             "to_restart": _flask_checked}
+            elif cursor == ROW_REFRESH_STATUS:
+                return {"action": "refresh_status"}
             elif cursor == ROW_QUIT:
                 return None
 
@@ -1459,13 +1664,16 @@ def _curses_menu(
             if can_push:
                 return {"action": "push_to_github"}
 
+        elif key == ord("f"):
+            return {"action": "refresh_status"}
+
         elif key == ord("R"):
             # Bulk restart — all checked installed Flask apps
             _flask_checked = [
-                APPS[i]["name"] for i in range(N)
-                if APPS[i]["flask"]
-                and status[APPS[i]["name"]]["installed"]
-                and desired[APPS[i]["name"]]
+                item["app"]["name"] for item in _DISPLAY_ITEMS
+                if item["app"]["flask"]
+                and status[item["app"]["name"]]["installed"]
+                and desired[item["app"]["name"]]
             ]
             if _flask_checked:
                 return {"action": "execute", "to_install": [], "to_uninstall": [],
@@ -1474,7 +1682,7 @@ def _curses_menu(
         elif key == ord("r"):
             # Single-app restart (cursor position)
             if cursor < N:
-                _app  = APPS[cursor]
+                _app  = _DISPLAY_ITEMS[cursor]["app"]
                 _name = _app["name"]
                 if _app["flask"] and status[_name]["installed"]:
                     return {"action": "execute", "to_install": [], "to_uninstall": [],
@@ -2531,14 +2739,6 @@ def main() -> None:
     status = load_status()
     print_status_table(status)
 
-    # Prompt before entering curses
-    print(f"{_BLD}  Opening selection menu…{_R}  (press any key)")
-    try:
-        input()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        sys.exit(0)
-
     # Main loop — stays in menu until the user chooses Quit
     while True:
         selection = run_selection_menu(status)
@@ -2550,7 +2750,12 @@ def main() -> None:
 
         action = selection.get("action", "execute")
 
-        if action == "check_updates":
+        if action == "refresh_status":
+            info("Refreshing local versions and service status…")
+            refresh_local_status(status)
+            # loop straight back to menu — no pause needed
+
+        elif action == "check_updates":
             _do_check_updates(status)
             try:
                 input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
@@ -2595,6 +2800,14 @@ def main() -> None:
                 status[name]["local_ver"]      = None
                 status[name]["service_status"] = ""
                 status[name]["needs_update"]   = False
+            _flask_restarted = [n for n in selection.get("to_restart", []) if APP_INDEX[n].get("flask")]
+            if _flask_restarted:
+                time.sleep(4)
+            for name in selection.get("to_restart", []):
+                app = APP_INDEX[name]
+                if app.get("flask"):
+                    status[name]["service_status"] = get_service_status(app)
+                    status[name]["running_ver"]    = get_running_version(app)
             try:
                 input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
             except (EOFError, KeyboardInterrupt):
