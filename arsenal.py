@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.6.0"
+VERSION      = "1.7.1"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -520,6 +520,18 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "pain.py",
         "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Phalanx",
+        "repo":        "Phalanx",
+        "github_url":  "https://github.com/pr0t31n/Phalanx.git",
+        "description": "Engagement-driven pentest orchestration platform — manages clients, projects, and scope across all pr0t31n tools with unified findings, compliance mapping (12 frameworks), Nessus integration, Burp XML import, and purgatory workflow for discovered remote projects.",
+        "short_desc":  "Engagement Orchestrator",
+        "port":        5000,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-phalanx",
         "requires":    [],
     },
     {
@@ -2179,9 +2191,15 @@ def _phase_go(merged: dict) -> None:
         warn("  Install Go: https://go.dev/dl/")
         return
     env = os.environ.copy()
-    env.setdefault("HOME",   "/root" if os.geteuid() == 0 else str(Path.home()))
+    if os.geteuid() == 0:
+        env["HOME"]   = "/root"
+        env["GOPATH"] = "/root/go"
+    else:
+        env.setdefault("HOME",   str(Path.home()))
+        env.setdefault("GOPATH", str(Path(env["HOME"]) / "go"))
     env["GOBIN"] = "/usr/local/bin"
-    env.setdefault("GOPATH", str(Path(env["HOME"]) / "go"))
+    env.setdefault("GONOSUMDB", "*")
+    _offline_urls = merged.get("OFFLINE_BUNDLE_URLS", {})
     print(f"\n{_BLD}── Phase: Go tools ───────────────────────────────────{_R}")
     for item in merged.get("GO_TOOLS", []):
         pkg, binary = (item[0], item[1]) if len(item) >= 2 else (item[0], item[0].split("/")[-1].split("@")[0])
@@ -2194,8 +2212,14 @@ def _phase_go(merged: dict) -> None:
                 capture_output=True, text=True, env=env, timeout=600)
             _log("go", binary, pkg, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
+            if r.returncode != 0 and binary in _offline_urls:
+                warn(f"go install failed for {binary} — trying offline bundle …")
+                _install_offline_bundle_arsenal(binary, _offline_urls[binary])
         except subprocess.TimeoutExpired:
             _log("go", binary, pkg, False, error="go install timed out after 600s")
+            if binary in _offline_urls:
+                warn(f"go install timed out for {binary} — trying offline bundle …")
+                _install_offline_bundle_arsenal(binary, _offline_urls[binary])
         except Exception as exc:
             _log("go", binary, pkg, False, error=str(exc))
 
