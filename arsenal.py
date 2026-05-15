@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.7.1"
+VERSION      = "1.7.2"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -2027,8 +2027,18 @@ def _phase_system(merged: dict, os_type: str) -> None:
     # apt update + upgrade — once, before any package installs
     if "apt" in pm:
         print(f"\n{_BLD}── Phase: apt update + upgrade ───────────────────────{_R}")
-        subprocess.run([pm, "update",  "-qq"], env=env, timeout=120)
-        subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=300)
+        try:
+            subprocess.run([pm, "update", "-qq"], env=env, timeout=180)
+        except subprocess.TimeoutExpired:
+            warn("apt update timed out — continuing with cached package lists.")
+        except Exception as exc:
+            warn(f"apt update failed: {exc}")
+        try:
+            subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=3600)
+        except subprocess.TimeoutExpired:
+            warn("apt upgrade timed out after 60 min — continuing with package installs.")
+        except Exception as exc:
+            warn(f"apt upgrade failed: {exc}")
 
     print(f"\n{_BLD}── Phase: system packages ({Path(pm).name}) ─────────────{_R}")
     for item in merged.get(pkg_list_key, []):
