@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.8.0"
+VERSION      = "1.8.1"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -897,8 +897,9 @@ def get_running_version(app: dict) -> str:
 
     # Step 2: systemctl / launchctl fallback — if the service is active,
     # the running version IS the installed version (systemd loaded the
-    # same files on disk). Suffix the value with a marker so operators
-    # can distinguish authoritative HTTP-probed versions from derived ones.
+    # same files on disk). Return the bare version string (no source-of-
+    # truth suffix — that breaks column-width alignment in the curses
+    # status table and was operator-flagged as noise).
     svc = app.get("service")
     if not svc:
         return ""
@@ -911,7 +912,7 @@ def get_running_version(app: dict) -> str:
             if r.stdout.strip() == "active":
                 lv = get_local_version(app)
                 if lv:
-                    return f"{lv} (via systemctl)"
+                    return lv
         elif SYSTEM == "Darwin":
             label = f"com.pr0t31n.{app['name'].lower()}"
             r = subprocess.run(
@@ -921,7 +922,7 @@ def get_running_version(app: dict) -> str:
             if r.returncode == 0:
                 lv = get_local_version(app)
                 if lv:
-                    return f"{lv} (via launchctl)"
+                    return lv
     except Exception:
         pass
     return ""
