@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.7.2"
+VERSION      = "1.8.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -499,18 +499,6 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Arbiter",
-        "repo":        "Arbiter",
-        "github_url":  "https://github.com/pr0t31n/Arbiter.git",
-        "description": "Security orchestration platform — aggregates, correlates, and enriches findings from all pr0t31n tools into a unified client dashboard with compliance mapping (NIST, OWASP, PCI DSS, ISO 27001, MITRE ATT&CK) and cross-tool analysis.",
-        "short_desc":  "Pentest Orchestration",
-        "port":        5000,
-        "flask":       True,
-        "main_file":   "app.py",
-        "service":     "pr0t31n-arbiter",
-        "requires":    [],
-    },
-    {
         "name":        "pAIn",
         "repo":        "pAIn",
         "github_url":  "https://github.com/pr0t31n/pAIn.git",
@@ -523,15 +511,15 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Phalanx",
-        "repo":        "Phalanx",
-        "github_url":  "https://github.com/pr0t31n/Phalanx.git",
+        "name":        "Arbiter",
+        "repo":        "Arbiter",
+        "github_url":  "https://github.com/pr0t31n/Arbiter.git",
         "description": "Engagement-driven pentest orchestration platform — manages clients, projects, and scope across all pr0t31n tools with unified findings, compliance mapping (12 frameworks), Nessus integration, Burp XML import, and purgatory workflow for discovered remote projects.",
         "short_desc":  "Engagement Orchestrator",
         "port":        5000,
         "flask":       True,
         "main_file":   "app.py",
-        "service":     "pr0t31n-phalanx",
+        "service":     "pr0t31n-arbiter",
         "requires":    [],
     },
     {
@@ -874,25 +862,68 @@ def get_service_status(app: dict) -> str:
 
 
 def get_running_version(app: dict) -> str:
-    """Probe the live Flask app's /api/nexus-status for its running version."""
-    if not app.get("flask") or not app.get("port"):
+    """Return the running version of a Flask app.
+
+    Resolution order:
+      1. HTTP probe of /api/nexus-status (preferred — confirms the actual
+         live process is responsive on the configured port).
+      2. systemctl is-active <svc>: if the unit is active, the running
+         process loaded the same files on disk as the installed copy, so
+         the local VERSION constant is what's running. Useful when an app
+         has no /api/nexus-status endpoint, when the port is bound only
+         to a UNIX socket / reverse-proxy, or when TLS configuration
+         breaks the probe.
+      3. Empty string if neither path yields a version.
+    """
+    # Step 1: HTTP probe
+    if app.get("flask") and app.get("port"):
+        import ssl as _ssl
+        port = app["port"]
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        for scheme, extra in (("https", {"context": ctx}), ("http", {})):
+            try:
+                url = f"{scheme}://127.0.0.1:{port}/api/nexus-status"
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": f"Arsenal/{VERSION}"})
+                with urllib.request.urlopen(req, timeout=2, **extra) as r:
+                    data = json.loads(r.read())
+                    v = str(data.get("version") or "").strip()
+                    if v:
+                        return v
+            except Exception:
+                pass
+
+    # Step 2: systemctl / launchctl fallback — if the service is active,
+    # the running version IS the installed version (systemd loaded the
+    # same files on disk). Suffix the value with a marker so operators
+    # can distinguish authoritative HTTP-probed versions from derived ones.
+    svc = app.get("service")
+    if not svc:
         return ""
-    import ssl as _ssl
-    port = app["port"]
-    ctx = _ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = _ssl.CERT_NONE
-    for scheme, extra in (("https", {"context": ctx}), ("http", {})):
-        try:
-            url = f"{scheme}://127.0.0.1:{port}/api/nexus-status"
-            req = urllib.request.Request(url, headers={"User-Agent": f"Arsenal/{VERSION}"})
-            with urllib.request.urlopen(req, timeout=2, **extra) as r:
-                data = json.loads(r.read())
-                v = str(data.get("version") or "").strip()
-                if v:
-                    return v
-        except Exception:
-            pass
+    try:
+        if SYSTEM == "Linux" and shutil.which("systemctl"):
+            r = subprocess.run(
+                ["systemctl", "is-active", svc],
+                capture_output=True, text=True, timeout=4,
+            )
+            if r.stdout.strip() == "active":
+                lv = get_local_version(app)
+                if lv:
+                    return f"{lv} (via systemctl)"
+        elif SYSTEM == "Darwin":
+            label = f"com.pr0t31n.{app['name'].lower()}"
+            r = subprocess.run(
+                ["launchctl", "list", label],
+                capture_output=True, text=True, timeout=4,
+            )
+            if r.returncode == 0:
+                lv = get_local_version(app)
+                if lv:
+                    return f"{lv} (via launchctl)"
+    except Exception:
+        pass
     return ""
 
 
@@ -1036,11 +1067,14 @@ def load_status() -> dict[str, dict]:
     return status
 
 
-def refresh_local_status(status: dict[str, dict]) -> None:
+def refresh_local_status(status: dict[str, dict], with_github: bool = False) -> None:
     """
-    Refresh installed/local_ver/service_status for every app in-place.
-    Does NOT re-fetch GitHub versions (keeps the existing github_ver).
-    Fast: reads VERSION files and checks service status only.
+    Refresh installed/local_ver/service_status/running_ver for every app
+    in-place. When *with_github* is True, also re-fetches the Latest
+    (github_ver) column. Default is False so the curses status header
+    on the hot path stays fast (no network round-trips); the explicit
+    user-triggered Refresh action passes with_github=True so every
+    visible column updates.
     """
     for app in APPS:
         name      = app["name"]
@@ -1049,6 +1083,8 @@ def refresh_local_status(status: dict[str, dict]) -> None:
         if installed:
             lv = get_local_version(app)
             status[name]["local_ver"] = lv
+            if with_github:
+                status[name]["github_ver"] = get_github_version(app)
             gv = status[name].get("github_ver") or ""
             status[name]["needs_update"] = bool(
                 lv and gv and lv not in ("unknown", gv)
@@ -1062,6 +1098,8 @@ def refresh_local_status(status: dict[str, dict]) -> None:
             status[name]["service_status"] = ""
             status[name]["running_ver"]    = ""
             status[name]["needs_update"]   = False
+            if with_github:
+                status[name]["github_ver"] = get_github_version(app)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2785,8 +2823,8 @@ def main() -> None:
         action = selection.get("action", "execute")
 
         if action == "refresh_status":
-            info("Refreshing local versions and service status…")
-            refresh_local_status(status)
+            info("Refreshing installed / installed version / latest / running …")
+            refresh_local_status(status, with_github=True)
             # loop straight back to menu — no pause needed
 
         elif action == "check_updates":
