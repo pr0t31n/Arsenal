@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.8.1"
+VERSION      = "1.8.2"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -386,6 +386,18 @@ APPS: list[dict] = [
         "port":        None,
         "flask":       False,
         "main_file":   "scattershot3.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Trawler",
+        "repo":        "Trawler",
+        "github_url":  "https://github.com/pr0t31n/Trawler.git",
+        "description": "Passive pcap-based traffic analyser — per-target external + internal risk surfacing. Auto-triggers after Scattershot3 scope completion; uploaded captures supported via Vantage. Emits findings into the universal Scattershot3/Vantage schema.",
+        "short_desc":  "PCAP Analyser",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "trawler.py",
         "service":     None,
         "requires":    [],
     },
