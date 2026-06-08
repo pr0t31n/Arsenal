@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.8.2"
+VERSION      = "1.9.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -1281,7 +1281,16 @@ def resolve_dependencies(
     status:       dict[str, dict],
 ) -> tuple[list[str], list[str]]:
     """
-    Expand to_install with any missing required dependencies.
+    Ensure each Flask app being installed has AT LEAST ONE of its listed
+    `requires` tools either already installed or queued in this install
+    batch.  Older behaviour auto-dragged in EVERY required tool, which
+    over-installed Flask apps that only need a subset (e.g. Spectre's
+    Aether family — most users want one or two, not all four).
+
+    If none of a Flask app's required tools are installed or queued, the
+    first entry in its `requires` list is auto-added so the Flask app
+    has something to drive.  Anything beyond that is left to the user.
+
     Warn if uninstalling something that another installed app depends on.
     Returns (ordered_install_list, uninstall_list).
     """
@@ -1290,16 +1299,28 @@ def resolve_dependencies(
     added: list[str] = []
 
     for name in list(to_install):
-        for dep in APP_INDEX[name].get("requires", []):
-            if dep not in install_set and not status.get(dep, {}).get("installed"):
-                install_set.add(dep)
-                added.append(dep)
+        deps = APP_INDEX[name].get("requires", [])
+        if not deps:
+            continue
+        # "Satisfied" = at least one of the required tools is already
+        # installed on the system OR was selected for install in this batch.
+        satisfied = any(
+            (d in install_set) or status.get(d, {}).get("installed")
+            for d in deps
+        )
+        if not satisfied:
+            # Auto-add the first required tool so the Flask app isn't
+            # installed against zero supported backends.
+            first = deps[0]
+            install_set.add(first)
+            added.append(first)
 
     if added:
         print()
-        warn("Auto-adding required dependencies:")
+        warn("Auto-adding minimum required dependency (one per Flask app):")
         for a in added:
             print(f"    {_Y}+{_R}  {a}")
+        print("    (install additional supported tools later from the menu)")
 
     for name in list(to_uninstall):
         for app in APPS:
