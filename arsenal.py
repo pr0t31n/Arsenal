@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.9.0"
+VERSION      = "1.12.1"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -544,6 +544,81 @@ APPS: list[dict] = [
         "port":        None,
         "flask":       False,
         "main_file":   "arsenal.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Helm",
+        "repo":        "Helm",
+        "github_url":  "https://github.com/pr0t31n/Helm.git",
+        "description": "Unified pr0t31n Flask management platform — central orchestration of every adapter, signed export, KEV enrichment, hash-chained timeline, and per-appliance dispatch.  Replaces Vantage + Crucible + Spectre + Gauntlet.",
+        "short_desc":  "Central Console",
+        "port":        10443,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-helm",
+        "requires":    [],
+    },
+    {
+        "name":        "HelmAgent",
+        "repo":        "HelmAgent",
+        "github_url":  "https://github.com/pr0t31n/HelmAgent.git",
+        "description": "Appliance-side mTLS RPC endpoint for Helm — capability probe, streaming exec dispatch, Arsenal proxy, signed self-update.  Installed on every testing appliance.  Listen port is randomly assigned in the 49152–65535 range at install time (persisted in .port).",
+        "short_desc":  "Helm Agent",
+        "port":        None,        # random per-appliance assignment
+        "flask":       True,
+        "main_file":   "agent.py",
+        "service":     "helm-agent",
+        "requires":    [],
+    },
+    # ── 2026-06-11 new tools ──────────────────────────────────────────
+    # v0.2.0 scope — MVP implementations.  Long-form descriptions reflect
+    # implemented coverage, not future aspirational scope.
+    {
+        "name":        "Forge",
+        "repo":        "Forge",
+        "github_url":  "https://github.com/pr0t31n/Forge.git",
+        "description": "Cloud control-plane auditor (v0.2.0): Azure (storage HTTPS-only, Key Vault soft-delete/purge-protection, VM OS disk encryption) and GCP (GCS uniform access, GCE default service account, project-level IAM owner/editor bindings). Read-only via az + gcloud CLIs. Pure-CLI, managed by Helm.",
+        "short_desc":  "Cloud Audit",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "forge.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Vault",
+        "repo":        "Vault",
+        "github_url":  "https://github.com/pr0t31n/Vault.git",
+        "description": "Active Directory credential-test orchestrator (v0.2.0): wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection. Pure-CLI, managed by Helm.",
+        "short_desc":  "AD Cred Test",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "vault.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Quill",
+        "repo":        "Quill",
+        "github_url":  "https://github.com/pr0t31n/Quill.git",
+        "description": "iOS IPA static analyser (v0.2.0): Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys). Pure-CLI, managed by Helm.",
+        "short_desc":  "iOS Static",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "quill.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Anvil",
+        "repo":        "Anvil",
+        "github_url":  "https://github.com/pr0t31n/Anvil.git",
+        "description": "Process State Sweep — local host forensic snapshot (v0.2.0): process inventory (root-shell heuristics), listening socket map (high-risk root-bound services), kernel module list, setuid binaries owned by non-root. Pure-CLI, managed by Helm.",
+        "short_desc":  "Host PSS",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "anvil.py",
         "service":     None,
         "requires":    [],
     },
@@ -2920,5 +2995,85 @@ def main() -> None:
                 print()
 
 
+# ── Structured CLI (Helm arsenal_bridge integration) ──────────────────
+# Helm uses this mode for unattended installs over agent/SSH dispatch.
+# Mode is entered by passing --json --non-interactive plus a command.
+# Output: a single JSON object on stdout, exit code 0=success non-zero=error.
+def _cli_main() -> int:
+    import argparse, json as _json, sys as _sys, traceback as _tb
+    p = argparse.ArgumentParser(prog="arsenal", add_help=True)
+    p.add_argument("--json", action="store_true", help="emit JSON on stdout")
+    p.add_argument("--non-interactive", action="store_true",
+                   help="never prompt; required for unattended mode")
+    sub = p.add_subparsers(dest="command")
+    sub.add_parser("status", help="dump current install status table")
+    p_install = sub.add_parser("install", help="install a tool")
+    p_install.add_argument("--tool", required=True)
+    p_uninst  = sub.add_parser("uninstall", help="uninstall a tool")
+    p_uninst.add_argument("--tool", required=True)
+    p_upgrade = sub.add_parser("upgrade", help="upgrade a tool to latest")
+    p_upgrade.add_argument("--tool", required=True)
+    p_check   = sub.add_parser("check-updates",
+                               help="report whether each tool needs an update")
+    args = p.parse_args()
+    if not (args.json and args.non_interactive and args.command):
+        return -1   # signal: fall through to interactive
+    out: dict = {"command": args.command, "arsenal_version": VERSION}
+    try:
+        if args.command == "status":
+            status = load_status()
+            refresh_local_status(status, with_github=False)
+            out["tools"] = {
+                n: {"installed":  s.get("installed", False),
+                    "local_ver":  s.get("local_ver"),
+                    "github_ver": s.get("github_ver"),
+                    "needs_update": bool(s.get("needs_update")),
+                    "service_status": s.get("service_status", "")}
+                for n, s in status.items()}
+            out["ok"] = True
+        elif args.command == "check-updates":
+            status = load_status()
+            refresh_local_status(status, with_github=True)
+            out["needs_update"] = [n for n, s in status.items()
+                                   if s.get("needs_update")]
+            out["ok"] = True
+        elif args.command in ("install", "uninstall", "upgrade"):
+            tool = args.tool
+            if tool not in APP_INDEX:
+                out.update({"ok": False, "error": f"unknown tool: {tool}"})
+                print(_json.dumps(out)); return 2
+            app = APP_INDEX[tool]
+            pre_ver = get_local_version(app)
+            if args.command == "install":
+                install_app(app)
+            elif args.command == "uninstall":
+                uninstall_app(app)
+            else:  # upgrade — git pull (handled by install_app for existing dirs)
+                install_app(app)
+            post_ver = get_local_version(app)
+            installed_now = _install_dir(app).is_dir()
+            out.update({"ok": True, "tool": tool,
+                        "pre_version": pre_ver,
+                        "post_version": post_ver,
+                        "installed_after": installed_now})
+        else:
+            out.update({"ok": False, "error": "unknown command"})
+            print(_json.dumps(out)); return 2
+    except SystemExit:
+        raise
+    except Exception as ex:
+        out.update({"ok": False,
+                    "error": f"{type(ex).__name__}: {ex}",
+                    "traceback": _tb.format_exc()})
+        print(_json.dumps(out)); return 3
+    print(_json.dumps(out))
+    return 0
+
+
 if __name__ == "__main__":
+    import sys as _sys
+    if "--json" in _sys.argv and "--non-interactive" in _sys.argv:
+        rc = _cli_main()
+        if rc != -1:
+            _sys.exit(rc)
     main()
