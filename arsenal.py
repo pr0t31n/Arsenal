@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.1"
+VERSION      = "1.12.2"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -462,6 +462,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Architect",
+        "repo":        "Architect",
+        "github_url":  "https://github.com/pr0t31n/Architect.git",
+        "description": "Multi-network fleet-management plane (Tier 0): mTLS FastAPI ingestion service writing to a parallel appliance_management_v2 DB, four pull-mode liveness adapters (MeshCentral/ZeroTier/OpenVPN), step-ca + Caddy ingress, and the prod->v2 operator-column sync. Non-disruptive migration of ApplianceMonitor.",
+        "short_desc":  "Fleet mgmt / ingestion",
+        "port":        8081,
+        "flask":       False,
+        "main_file":   "ingestion/app.py",
+        "service":     "architect-ingestion",
+        "requires":    [],
+    },
+    {
         "name":        "Crucible",
         "repo":        "Crucible",
         "github_url":  "https://github.com/pr0t31n/Crucible.git",
@@ -578,7 +590,7 @@ APPS: list[dict] = [
         "name":        "Forge",
         "repo":        "Forge",
         "github_url":  "https://github.com/pr0t31n/Forge.git",
-        "description": "Cloud control-plane auditor (v0.2.0): Azure (storage HTTPS-only, Key Vault soft-delete/purge-protection, VM OS disk encryption) and GCP (GCS uniform access, GCE default service account, project-level IAM owner/editor bindings). Read-only via az + gcloud CLIs. Pure-CLI, managed by Helm.",
+        "description": "Cloud control-plane auditor (v0.3.0): Azure (storage HTTPS-only, Key Vault soft-delete/purge-protection, VM OS disk encryption) and GCP (GCS uniform access, GCE default service account, project-level IAM owner/editor bindings). Read-only via az + gcloud CLIs. Pure-CLI, managed by Helm.",
         "short_desc":  "Cloud Audit",
         "port":        None,
         "flask":       False,
@@ -590,7 +602,7 @@ APPS: list[dict] = [
         "name":        "Vault",
         "repo":        "Vault",
         "github_url":  "https://github.com/pr0t31n/Vault.git",
-        "description": "Active Directory credential-test orchestrator (v0.2.0): wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection. Pure-CLI, managed by Helm.",
+        "description": "Active Directory credential-test orchestrator (v0.3.0): wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection. Pure-CLI, managed by Helm.",
         "short_desc":  "AD Cred Test",
         "port":        None,
         "flask":       False,
@@ -602,7 +614,7 @@ APPS: list[dict] = [
         "name":        "Quill",
         "repo":        "Quill",
         "github_url":  "https://github.com/pr0t31n/Quill.git",
-        "description": "iOS IPA static analyser (v0.2.0): Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys). Pure-CLI, managed by Helm.",
+        "description": "iOS IPA static analyser (v0.3.0): Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys). Pure-CLI, managed by Helm.",
         "short_desc":  "iOS Static",
         "port":        None,
         "flask":       False,
@@ -614,7 +626,7 @@ APPS: list[dict] = [
         "name":        "Anvil",
         "repo":        "Anvil",
         "github_url":  "https://github.com/pr0t31n/Anvil.git",
-        "description": "Process State Sweep — local host forensic snapshot (v0.2.0): process inventory (root-shell heuristics), listening socket map (high-risk root-bound services), kernel module list, setuid binaries owned by non-root. Pure-CLI, managed by Helm.",
+        "description": "Process State Sweep — local host forensic snapshot (v0.3.0): process inventory (root-shell heuristics), listening socket map (high-risk root-bound services), kernel module list, setuid binaries owned by non-root. Pure-CLI, managed by Helm.",
         "short_desc":  "Host PSS",
         "port":        None,
         "flask":       False,
@@ -1257,13 +1269,13 @@ def check_updates(status: dict[str, dict]) -> None:
     print()
 
 
-def _update_app(app: dict) -> None:
+def _update_app(app: dict, installer_args: "list[str] | None" = None) -> None:
     install_dir = _install_dir(app)
     info(f"Updating {app['name']}…")
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                  capture_output=True, text=True, env=_git_env())
     if r.returncode == 0:
-        _run_install_py(install_dir)
+        _run_install_py(install_dir, extra_args=installer_args)
         ok(f"{app['name']} updated.")
     else:
         err(f"git pull failed for {app['name']}: {r.stderr.strip()[:120]}")
@@ -1272,11 +1284,12 @@ def _update_app(app: dict) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Install / Uninstall
 # ─────────────────────────────────────────────────────────────────────────────
-def _run_install_py(install_dir: Path) -> None:
+def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) -> None:
     installer = install_dir / "install.py"
     if installer.exists():
         info(f"Running install.py in {install_dir.name}…")
-        subprocess.run([sys.executable, str(installer)], cwd=str(install_dir))
+        cmd = [sys.executable, str(installer)] + (extra_args or [])
+        subprocess.run(cmd, cwd=str(install_dir))
     else:
         warn(f"No install.py found in {install_dir.name} — skipping post-install.")
 
@@ -2721,7 +2734,12 @@ def _do_check_updates(status: dict) -> None:
 
 
 def _do_upgrade(status: dict) -> None:
-    """Upgrade every installed app marked needs_update; mutate status in place."""
+    """Upgrade every installed app marked needs_update; mutate status in place.
+
+    Runs ``apt update`` + ``apt upgrade -y`` at most ONCE across all apps,
+    then passes ``--skip-apt`` to each tool's ``install.py`` so they skip
+    their own redundant apt refresh.
+    """
     outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
     if not outdated:
         ok("All installed apps are up to date.")
@@ -2730,8 +2748,34 @@ def _do_upgrade(status: dict) -> None:
     for app in outdated:
         print(f"  {_Y}▲{_R}  {app['name']}")
     print()
+
+    # ── Run apt update + upgrade ONCE before any per-app install.py ────────
+    os_type = detect_os()
+    _ran_apt = False
+    if os_type not in ("macos", "windows"):
+        pm = shutil.which("apt-get") or shutil.which("apt")
+        if pm and "apt" in pm:
+            env = os.environ.copy()
+            env["DEBIAN_FRONTEND"] = "noninteractive"
+            print(f"{_BLD}── Phase: apt update + upgrade (once) ──────────────{_R}")
+            try:
+                subprocess.run([pm, "update", "-qq"], env=env, timeout=180)
+            except subprocess.TimeoutExpired:
+                warn("apt update timed out — continuing with cached package lists.")
+            except Exception as exc:
+                warn(f"apt update failed: {exc}")
+            try:
+                subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=3600)
+            except subprocess.TimeoutExpired:
+                warn("apt upgrade timed out after 60 min — continuing.")
+            except Exception as exc:
+                warn(f"apt upgrade failed: {exc}")
+            _ran_apt = True
+            print()
+
+    skip_flags = ["--skip-apt"] if _ran_apt else []
     for app in outdated:
-        _update_app(app)
+        _update_app(app, installer_args=skip_flags)
         status[app["name"]]["local_ver"]    = get_local_version(app)
         status[app["name"]]["needs_update"] = False
     ok("Upgrade complete.")
