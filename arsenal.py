@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.2"
+VERSION      = "1.12.3"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
