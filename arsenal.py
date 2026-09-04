@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.3"
+VERSION      = "1.12.4"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -1793,7 +1793,10 @@ def _curses_menu(
                             "to_install": [], "to_uninstall": to_uninstall}
             elif cursor == ROW_UPGRADE:
                 if can_upgrade:
-                    return {"action": "upgrade"}
+                    _upg = [n for n in checked_names
+                            if status[n]["installed"]
+                            and status[n].get("needs_update")]
+                    return {"action": "upgrade", "checked": _upg}
             elif cursor == ROW_PUSH:
                 if can_push:
                     return {"action": "push_to_github"}
@@ -1830,7 +1833,10 @@ def _curses_menu(
 
         elif key == ord("U"):
             if can_upgrade:
-                return {"action": "upgrade"}
+                _upg = [n for n in checked_names
+                        if status[n]["installed"]
+                        and status[n].get("needs_update")]
+                return {"action": "upgrade", "checked": _upg}
 
         elif key == ord("p"):
             if can_push:
@@ -2733,14 +2739,23 @@ def _do_check_updates(status: dict) -> None:
                   f"{st['local_ver']}  →  {_G}{st['github_ver']}{_R}")
 
 
-def _do_upgrade(status: dict) -> None:
-    """Upgrade every installed app marked needs_update; mutate status in place.
+def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
+    """Upgrade selected apps marked needs_update; mutate status in place.
+
+    When *checked* is given (list of tool names), only those tools are
+    upgraded.  When *checked* is ``None`` or empty, ALL installed apps
+    with ``needs_update`` are upgraded (legacy / fallback behaviour).
 
     Runs ``apt update`` + ``apt upgrade -y`` at most ONCE across all apps,
     then passes ``--skip-apt`` to each tool's ``install.py`` so they skip
     their own redundant apt refresh.
     """
-    outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
+    if checked:
+        _names = set(checked)
+        outdated = [a for a in APPS
+                    if a["name"] in _names and status[a["name"]]["needs_update"]]
+    else:
+        outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
     if not outdated:
         ok("All installed apps are up to date.")
         return
@@ -2988,7 +3003,7 @@ def main() -> None:
                 print()
 
         elif action == "upgrade":
-            _do_upgrade(status)
+            _do_upgrade(status, checked=result.get("checked"))
             try:
                 input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
             except (EOFError, KeyboardInterrupt):
