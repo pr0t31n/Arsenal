@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.4"
+VERSION      = "1.12.5"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -3003,7 +3003,7 @@ def main() -> None:
                 print()
 
         elif action == "upgrade":
-            _do_upgrade(status, checked=result.get("checked"))
+            _do_upgrade(status, checked=selection.get("checked"))
             try:
                 input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
             except (EOFError, KeyboardInterrupt):
