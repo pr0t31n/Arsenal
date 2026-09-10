@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.5"
+VERSION      = "1.12.6"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -632,6 +632,18 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "anvil.py",
         "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "LandNav",
+        "repo":        "LandNav",
+        "github_url":  "https://github.com/pr0t31n/LandNav.git",
+        "description": "Automated rogue device network bootstrapper for Raspberry Pi drop devices.",
+        "short_desc":  "Drop Device",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "landnav.py",
+        "service":     "landnav",
         "requires":    [],
     },
 ]
