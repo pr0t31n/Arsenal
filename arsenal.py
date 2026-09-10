@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.6"
+VERSION      = "1.12.7"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -2833,11 +2833,12 @@ def _push_app_to_github(app: dict, status: dict) -> None:
         capture_output=True, text=True, env=git_e,
     )
     if r2.returncode != 0:
-        # Exit code 1 with "nothing to commit" is not an error
+        # Exit code 1 with "nothing to commit" is not an error — but still
+        # attempt the push in case prior commits remain unpushed.
         if "nothing to commit" in (r2.stdout + r2.stderr).lower():
-            warn(f"{name}: nothing to commit — skipping push.")
-            return
-        warn(f"{name}: git commit returned {r2.returncode} — {r2.stderr.strip()[:80]}")
+            pass  # fall through to push
+        else:
+            warn(f"{name}: git commit returned {r2.returncode} — {r2.stderr.strip()[:80]}")
 
     r3 = _git_run(
         ["git", "-C", str(install_dir), "push", "origin", "main"],
