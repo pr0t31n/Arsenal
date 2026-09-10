@@ -35,7 +35,7 @@ import atexit
 import base64
 import getpass
 
-VERSION      = "1.12.7"
+VERSION      = "1.12.8"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -357,13 +357,13 @@ APPS: list[dict] = [
         "name":        "Vantage",
         "repo":        "Vantage",
         "github_url":  "https://github.com/pr0t31n/Vantage.git",
-        "description": "Recon platform — orchestrates Scattershot3 network pentest and OSift OSINT in a unified session-managed dashboard with live findings streaming.",
-        "short_desc":  "Network & OSINT Recon",
+        "description": "Recon platform — orchestrates Scattershot3 network pentest, OSift OSINT, Auger database audit, and Trawler traffic analysis in a unified session-managed dashboard with live findings streaming.",
+        "short_desc":  "Network · OSINT · DB Audit",
         "port":        5100,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-vantage",
-        "requires":    ["Scattershot3", "OSift"],
+        "requires":    ["Scattershot3", "OSift", "Auger", "Trawler"],
     },
     {
         "name":        "OSift",
@@ -477,13 +477,13 @@ APPS: list[dict] = [
         "name":        "Crucible",
         "repo":        "Crucible",
         "github_url":  "https://github.com/pr0t31n/Crucible.git",
-        "description": "Web app, API and database pentest platform — orchestrates Fracture, Siphon and Auger in a unified session-managed dashboard with live findings streaming.",
-        "short_desc":  "WebApp · API · Database",
+        "description": "Web app and API pentest platform — orchestrates Fracture and Siphon in a unified session-managed dashboard with live findings streaming.",
+        "short_desc":  "WebApp · API",
         "port":        5500,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-crucible",
-        "requires":    ["Fracture", "Siphon", "Auger"],
+        "requires":    ["Fracture", "Siphon"],
     },
     {
         "name":        "AuthProbe",
@@ -2840,8 +2840,15 @@ def _push_app_to_github(app: dict, status: dict) -> None:
         else:
             warn(f"{name}: git commit returned {r2.returncode} — {r2.stderr.strip()[:80]}")
 
+    # Detect current branch (main or master)
+    _head_ref = _git_run(
+        ["git", "-C", str(install_dir), "symbolic-ref", "--short", "HEAD"],
+        capture_output=True, text=True, env=git_e,
+    )
+    branch = _head_ref.stdout.strip() if _head_ref.returncode == 0 else "main"
+
     r3 = _git_run(
-        ["git", "-C", str(install_dir), "push", "origin", "main"],
+        ["git", "-C", str(install_dir), "push", "origin", branch],
         capture_output=True, text=True, env=git_e,
     )
     if r3.returncode == 0:
