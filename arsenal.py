@@ -34,8 +34,9 @@ import shlex
 import atexit
 import base64
 import getpass
+import select as _select
 
-VERSION      = "1.12.8"
+VERSION      = "1.12.9"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -228,6 +229,32 @@ def ok(m:   str) -> None: print(f"{_G}[+]{_R} {m}", flush=True)
 def info(m: str) -> None: print(f"{_C}[*]{_R} {m}", flush=True)
 def warn(m: str) -> None: print(f"{_Y}[~]{_R} {m}", flush=True)
 def err(m:  str) -> None: print(f"{_RD}[!]{_R} {m}", flush=True)
+
+
+def _clean_input(prompt: str = "") -> str:
+    """input() replacement that periodically repaints the prompt line.
+
+    When Arsenal is run over an SSH session that also carries a SOCKS proxy
+    (``ssh -D …``), the SSH client writes ``channel N: open failed`` messages
+    to the PTY whenever a SOCKS-forwarded connection is refused.  These appear
+    inline, garbling whatever prompt Arsenal is showing.
+
+    This function uses ``select`` with a 1.5 s timeout so that every 1.5 s it
+    clears the current line and reprints the prompt — painting over any SSH
+    noise that arrived since the last repaint.
+    """
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    try:
+        while True:
+            if _select.select([sys.stdin], [], [], 1.5)[0]:
+                return sys.stdin.readline().rstrip("\n")
+            sys.stdout.write(f"\r\033[2K{prompt}")
+            sys.stdout.flush()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ASCII banner
@@ -1509,6 +1536,7 @@ def _curses_menu(
     """
     curses.curs_set(0)
     _init_colors()
+    stdscr.timeout(1500)  # 1.5 s — repaint covers SSH channel noise
 
     N = len(_DISPLAY_ITEMS)
 
@@ -1781,6 +1809,9 @@ def _curses_menu(
 
         # ── keyboard input ────────────────────────────────────────────────────
         key = stdscr.getch()
+
+        if key == -1:  # timeout — loop repaints screen, covering SSH noise
+            continue
 
         if key in (curses.KEY_UP, ord("k")):
             cursor = (cursor - 1) % TOTAL
@@ -3017,17 +3048,11 @@ def main() -> None:
 
         elif action == "check_updates":
             _do_check_updates(status)
-            try:
-                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
-            except (EOFError, KeyboardInterrupt):
-                print()
+            _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
         elif action == "upgrade":
             _do_upgrade(status, checked=selection.get("checked"))
-            try:
-                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
-            except (EOFError, KeyboardInterrupt):
-                print()
+            _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
         elif action == "push_to_github":
             _do_push_to_github(status)
@@ -3041,10 +3066,7 @@ def main() -> None:
                     status[_name]["needs_update"] = bool(
                         _lv and _gv and _lv not in ("unknown", _gv)
                     )
-            try:
-                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
-            except (EOFError, KeyboardInterrupt):
-                print()
+            _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
         else:  # execute — install / uninstall / restart
             execute_changes(selection, status)
@@ -3068,10 +3090,7 @@ def main() -> None:
                 if app.get("flask"):
                     status[name]["service_status"] = get_service_status(app)
                     status[name]["running_ver"]    = get_running_version(app)
-            try:
-                input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
-            except (EOFError, KeyboardInterrupt):
-                print()
+            _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
 
 # ── Structured CLI (Helm arsenal_bridge integration) ──────────────────
