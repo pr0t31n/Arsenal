@@ -40,8 +40,8 @@ W  = "\033[0m"
 # ─────────────────────────────────────────────────────────────────────────────
 
 APP_NAME = "Arsenal"
-APP_DIR  = Path("/opt/Arsenal")
-VERSION  = "1.1.0"
+APP_DIR  = Path(__file__).resolve().parent
+VERSION  = "1.1.1"
 SYSTEM   = platform.system()
 
 # ── system package lists ──────────────────────────────────────────────────────
@@ -497,7 +497,7 @@ def main() -> None:
     script = APP_DIR / "arsenal.py"
     if not script.exists():
         err(f"arsenal.py not found at {script}")
-        warn("Ensure this installer is located at /opt/Arsenal/install.py")
+        warn(f"Ensure this installer is located at {APP_DIR}/install.py")
         sys.exit(1)
     setup_arsenal_command(os_type, script, args)
 

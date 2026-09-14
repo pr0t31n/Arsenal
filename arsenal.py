@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.12.9"
+VERSION      = "1.12.11"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -576,7 +576,7 @@ APPS: list[dict] = [
     {
         "name":        "Arsenal",
         "repo":        "Arsenal",
-        "install_path": "/opt/Arsenal",
+        "install_path": str(Path(__file__).resolve().parent),
         "github_url":  "https://github.com/pr0t31n/Arsenal.git",
         "description": "Installer and manager for the pr0t31n toolkit — checks, installs, updates, and uninstalls all pr0t31n tools.",
         "short_desc":  "Toolkit Manager",
@@ -670,7 +670,7 @@ APPS: list[dict] = [
         "port":        None,
         "flask":       False,
         "main_file":   "landnav.py",
-        "service":     "landnav",
+        "service":     None,
         "requires":    [],
     },
 ]
