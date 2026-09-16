@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.12.11"
+VERSION      = "1.12.12"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -670,6 +670,18 @@ APPS: list[dict] = [
         "port":        None,
         "flask":       False,
         "main_file":   "landnav.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Isotope",
+        "repo":        "Isotope",
+        "github_url":  "https://github.com/pr0t31n/Isotope.git",
+        "description": "Universal file analysis tool (v1.0.0): identification, entropy/encryption detection, string extraction, code analysis, metadata extraction, binary/executable analysis, secrets scanning, hashing with IOC lookup, and recursive archive decomposition. Pure-CLI, managed by Crucible.",
+        "short_desc":  "File Analysis",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "isotope.py",
         "service":     None,
         "requires":    [],
     },
