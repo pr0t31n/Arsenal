@@ -672,6 +672,12 @@ APPS: list[dict] = [
         "main_file":   "landnav.py",
         "service":     "landnav",
         "requires":    [],
+        "install_modes": [
+            {"key": "device", "label": "Testing Device (Raspberry Pi)",
+             "desc": "Full install — systemd service, watchdog, NM config, bridge tools, chisel"},
+            {"key": "server", "label": "Server (Grimlock)",
+             "desc": "Server-side RC scripts only — no systemd service, no networking changes"},
+        ],
     },
     {
         "name":        "Isotope",
@@ -2543,7 +2549,7 @@ def _phase_git(merged: dict) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Phased installer (replaces per-app _run_install_py for installs)
 # ─────────────────────────────────────────────────────────────────────────────
-def install_apps_phased(app_names: list) -> None:
+def install_apps_phased(app_names: list, install_modes: "dict | None" = None) -> None:
     """
     Install one or more apps using a combined phased approach:
       apt/dnf/zypper (once) → brew → pip → go → git
@@ -2594,15 +2600,18 @@ def install_apps_phased(app_names: list) -> None:
     _phase_git(merged)
 
     # Step 4: run any app-specific post-install steps via install.py
+    _modes = install_modes or {}
     for name in app_names:
         install_dir = _install_dir(APP_INDEX[name])
         installer   = install_dir / "install.py"
         if installer.exists():
             info(f"Running post-install steps from {name}/install.py…")
+            extra = ["--skip-apt", "--skip-pip", "--skip-go", "--skip-git"]
+            if name in _modes:
+                extra += [f"--mode={_modes[name]}"]
             try:
                 r = subprocess.run(
-                    [sys.executable, str(installer),
-                     "--skip-apt", "--skip-pip", "--skip-go", "--skip-git"],
+                    [sys.executable, str(installer)] + extra,
                     cwd=str(install_dir),
                     capture_output=True, text=True, timeout=300,
                 )
@@ -2626,6 +2635,8 @@ def install_apps_phased(app_names: list) -> None:
     # Step 5: start services for newly installed apps (Linux / systemd only)
     if shutil.which("systemctl") and os_type not in ("macos", "windows"):
         for name in app_names:
+            if _modes.get(name) == "server":
+                continue
             svc = APP_INDEX[name].get("service")
             if not svc:
                 continue
@@ -3034,13 +3045,35 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
         return
 
     print()
+
+    # ── Prompt for install modes where applicable ──────────────────────
+    install_modes: dict = {}
+    for name in to_install:
+        modes = APP_INDEX[name].get("install_modes")
+        if not modes:
+            continue
+        print(f"\n{_BLD}  {name} — Select install mode:{_R}")
+        for i, m in enumerate(modes, 1):
+            print(f"    {i}) {m['label']}")
+            print(f"       {_DIM}{m['desc']}{_R}")
+        try:
+            choice = input(f"\n  Select [1-{len(modes)}]: ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(modes):
+                install_modes[name] = modes[idx]["key"]
+            else:
+                install_modes[name] = modes[0]["key"]
+        except (EOFError, KeyboardInterrupt, ValueError):
+            install_modes[name] = modes[0]["key"]
+        info(f"{name} install mode: {install_modes[name]}")
+
     # ── Installs — phased across all selected apps ──────────────────────
     if to_install:
         _INSTALL_LOG.clear()
         print(f"\n{_BLD}{'─' * 50}{_R}")
         print(f"{_BLD}  Installing (phased): {', '.join(to_install)}{_R}")
         print(f"{_BLD}{'─' * 50}{_R}")
-        install_apps_phased(to_install)
+        install_apps_phased(to_install, install_modes=install_modes)
         print()
         generate_report(_INSTALL_LOG, to_install, to_uninstall, to_restart)
 
