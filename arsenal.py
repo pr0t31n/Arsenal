@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.13.0"
+VERSION      = "1.13.1"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -665,12 +665,12 @@ APPS: list[dict] = [
         "name":        "LandNav",
         "repo":        "LandNav",
         "github_url":  "https://github.com/pr0t31n/LandNav.git",
-        "description": "Automated rogue device network bootstrapper for Raspberry Pi drop devices.",
+        "description": "Automated rogue device network bootstrapper for Raspberry Pi drop devices. Includes systemd service with external watchdog (heartbeat, C2 state monitoring, Chisel upgrade).",
         "short_desc":  "Drop Device",
         "port":        None,
         "flask":       False,
         "main_file":   "landnav.py",
-        "service":     None,
+        "service":     "landnav",
         "requires":    [],
     },
     {
