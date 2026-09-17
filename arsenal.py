@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.12.12"
+VERSION      = "1.13.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -685,6 +685,18 @@ APPS: list[dict] = [
         "service":     None,
         "requires":    [],
     },
+    {
+        "name":        "Shared",
+        "repo":        "shared",
+        "github_url":  "https://github.com/pr0t31n/shared.git",
+        "description": "Shared Python modules for the pr0t31n toolkit — universal output schema, event logging, tool runner, HTTP evidence capture, false-positive management, findings catalogue tooling, and engagement directory helpers.",
+        "short_desc":  "Shared Modules",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "pr0t31n_schema.py",
+        "service":     None,
+        "requires":    [],
+    },
 ]
 
 APP_INDEX: dict[str, dict] = {a["name"]: a for a in APPS}
@@ -1321,6 +1333,8 @@ def check_updates(status: dict[str, dict]) -> None:
 
 
 def _update_app(app: dict, installer_args: "list[str] | None" = None) -> None:
+    if app["name"] not in ("Arsenal", "Shared"):
+        _ensure_shared_current()
     install_dir = _install_dir(app)
     info(f"Updating {app['name']}…")
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
@@ -1345,9 +1359,35 @@ def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) ->
         warn(f"No install.py found in {install_dir.name} — skipping post-install.")
 
 
+def _ensure_shared_current() -> None:
+    """Pull latest shared modules before installing/upgrading a dependent tool."""
+    if "Shared" not in APP_INDEX:
+        return
+    shared = APP_INDEX["Shared"]
+    shared_dir = _install_dir(shared)
+    git_env = _git_env()
+    if shared_dir.is_dir() and (shared_dir / ".git").is_dir():
+        r = _git_run(["git", "-C", str(shared_dir), "pull", "--ff-only"],
+                     capture_output=True, text=True, env=git_env)
+        if r.returncode == 0 and "Already up to date" not in (r.stdout or ""):
+            info("Shared modules updated.")
+    elif not shared_dir.is_dir():
+        info("Installing shared modules (dependency)…")
+        _ensure_gh_creds()
+        shared_dir.parent.mkdir(parents=True, exist_ok=True)
+        r = _git_run([
+            "git", "clone", "--depth=1", _authed_url(shared["github_url"]),
+            str(shared_dir),
+        ], capture_output=True, text=True, env=git_env)
+        if r.returncode == 0:
+            ok("Shared modules installed.")
+
+
 def install_app(app: dict) -> None:
     """Clone repo into INSTALL_BASE (or app install_path) and run install.py."""
     _ensure_gh_creds()
+    if app["name"] not in ("Arsenal", "Shared"):
+        _ensure_shared_current()
     install_dir = _install_dir(app)
     install_dir.parent.mkdir(parents=True, exist_ok=True)
     git_env     = _git_env()
