@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.13.1"
+VERSION      = "1.13.2"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -2845,6 +2845,30 @@ def _do_check_updates(status: dict) -> None:
                   f"{st['local_ver']}  →  {_G}{st['github_ver']}{_R}")
 
 
+def _prompt_install_modes(app_names: list) -> dict:
+    """Prompt for install mode on any app that has install_modes defined."""
+    modes: dict = {}
+    for name in app_names:
+        app_modes = APP_INDEX[name].get("install_modes")
+        if not app_modes:
+            continue
+        print(f"\n{_BLD}  {name} — Select install mode:{_R}")
+        for i, m in enumerate(app_modes, 1):
+            print(f"    {i}) {m['label']}")
+            print(f"       {_DIM}{m['desc']}{_R}")
+        try:
+            choice = input(f"\n  Select [1-{len(app_modes)}]: ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(app_modes):
+                modes[name] = app_modes[idx]["key"]
+            else:
+                modes[name] = app_modes[0]["key"]
+        except (EOFError, KeyboardInterrupt, ValueError):
+            modes[name] = app_modes[0]["key"]
+        info(f"{name} install mode: {modes[name]}")
+    return modes
+
+
 def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
     """Upgrade selected apps marked needs_update; mutate status in place.
 
@@ -2869,6 +2893,9 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
     for app in outdated:
         print(f"  {_Y}▲{_R}  {app['name']}")
     print()
+
+    # ── Prompt for install modes where applicable ────────────────────────
+    _modes = _prompt_install_modes([a["name"] for a in outdated])
 
     # ── Run apt update + upgrade ONCE before any per-app install.py ────────
     os_type = detect_os()
@@ -2896,9 +2923,13 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
 
     skip_flags = ["--skip-apt"] if _ran_apt else []
     for app in outdated:
-        _update_app(app, installer_args=skip_flags)
-        status[app["name"]]["local_ver"]    = get_local_version(app)
-        status[app["name"]]["needs_update"] = False
+        name = app["name"]
+        extra = list(skip_flags)
+        if name in _modes:
+            extra.append(f"--mode={_modes[name]}")
+        _update_app(app, installer_args=extra)
+        status[name]["local_ver"]    = get_local_version(app)
+        status[name]["needs_update"] = False
     ok("Upgrade complete.")
 
 
@@ -3047,25 +3078,7 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
     print()
 
     # ── Prompt for install modes where applicable ──────────────────────
-    install_modes: dict = {}
-    for name in to_install:
-        modes = APP_INDEX[name].get("install_modes")
-        if not modes:
-            continue
-        print(f"\n{_BLD}  {name} — Select install mode:{_R}")
-        for i, m in enumerate(modes, 1):
-            print(f"    {i}) {m['label']}")
-            print(f"       {_DIM}{m['desc']}{_R}")
-        try:
-            choice = input(f"\n  Select [1-{len(modes)}]: ").strip()
-            idx = int(choice) - 1
-            if 0 <= idx < len(modes):
-                install_modes[name] = modes[idx]["key"]
-            else:
-                install_modes[name] = modes[0]["key"]
-        except (EOFError, KeyboardInterrupt, ValueError):
-            install_modes[name] = modes[0]["key"]
-        info(f"{name} install mode: {install_modes[name]}")
+    install_modes = _prompt_install_modes(to_install)
 
     # ── Installs — phased across all selected apps ──────────────────────
     if to_install:
