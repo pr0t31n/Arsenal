@@ -665,7 +665,7 @@ APPS: list[dict] = [
         "name":        "LandNav",
         "repo":        "LandNav",
         "github_url":  "https://github.com/pr0t31n/LandNav.git",
-        "description": "Automated rogue device network bootstrapper for Raspberry Pi drop devices. Includes systemd service with external watchdog (heartbeat, C2 state monitoring, Chisel upgrade).",
+        "description": "Automated rogue device network bootstrapper for Raspberry Pi drop devices. Parallel C2 egress (chisel, iodine, meterpreter), systemd service with external watchdog. Server-side management moved to Polaris.",
         "short_desc":  "Drop Device",
         "port":        None,
         "flask":       False,
@@ -675,8 +675,6 @@ APPS: list[dict] = [
         "install_modes": [
             {"key": "device", "label": "Testing Device (Raspberry Pi)",
              "desc": "Full install — systemd service, watchdog, NM config, bridge tools, chisel"},
-            {"key": "server", "label": "Server (Grimlock)",
-             "desc": "Server-side RC scripts only — no systemd service, no networking changes"},
         ],
     },
     {
