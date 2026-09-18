@@ -682,7 +682,7 @@ APPS: list[dict] = [
         "port":        5900,
         "flask":       True,
         "main_file":   "app.py",
-        "service":     None,
+        "service":     "polaris",
         "requires":    [],
     },
     {
