@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.13.6"
+VERSION      = "1.13.7"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -670,7 +670,7 @@ APPS: list[dict] = [
         "port":        None,
         "flask":       False,
         "main_file":   "landnav.py",
-        "service":     "landnav",
+        "service":     "pr0t31n-landnav",
         "requires":    [],
     },
         {
@@ -682,7 +682,7 @@ APPS: list[dict] = [
         "port":        5900,
         "flask":       True,
         "main_file":   "app.py",
-        "service":     "polaris",
+        "service":     "pr0t31n-polaris",
         "requires":    [],
     },
     {
