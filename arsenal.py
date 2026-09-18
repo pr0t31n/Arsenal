@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.14.0"
+VERSION      = "1.15.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -429,14 +429,26 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Mole",
-        "repo":        "Mole",
-        "github_url":  "https://github.com/pr0t31n/Mole.git",
-        "description": "Go-based SOCKS5 + DNS proxy — transparent relay with iptables/pf integration for DNS interception and tunnelling through pivot points.",
-        "short_desc":  "SOCKS5 / DNS Proxy",
+        "name":        "Mole-Client",
+        "repo":        "Mole-Client",
+        "github_url":  "https://github.com/pr0t31n/Mole-Client.git",
+        "description": "Transparent SOCKS5 + DNS proxy client — iptables REDIRECT intercepts outbound traffic and tunnels it through a SOCKS upstream (e.g. chisel). Pre-built binaries for Linux amd64/arm64, macOS, Windows.",
+        "short_desc":  "Traffic Proxy Client",
         "port":        None,
         "flask":       False,
-        "main_file":   "cmd/client/main.go",
+        "main_file":   "mole.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Mole-Server",
+        "repo":        "Mole-Server",
+        "github_url":  "https://github.com/pr0t31n/Mole-Server.git",
+        "description": "SOCKS5 + DNS proxy server daemon (moled) — receives tunnelled traffic from Mole-Client and forwards to the internet. Pre-built binaries for Linux amd64/arm64.",
+        "short_desc":  "Traffic Proxy Server",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "Mole-Server-Install.py",
         "service":     None,
         "requires":    [],
     },
@@ -672,6 +684,9 @@ APPS: list[dict] = [
         "main_file":   "landnav.py",
         "service":     "pr0t31n-landnav",
         "requires":    [],
+        "optional_deps": [
+            {"name": "Mole-Client", "prompt": "Install Mole-Client for traffic tunnelling (routes outbound traffic through chisel)?"},
+        ],
     },
         {
         "name":        "Polaris",
@@ -1356,6 +1371,7 @@ def _update_app(app: dict, installer_args: "list[str] | None" = None) -> None:
         ok(f"{app['name']} updated.")
     else:
         err(f"git pull failed for {app['name']}: {r.stderr.strip()[:120]}")
+    _handle_optional_deps(app, is_update=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1395,6 +1411,30 @@ def _ensure_shared_current() -> None:
             ok("Shared modules installed.")
 
 
+def _handle_optional_deps(app: dict, is_update: bool = False) -> None:
+    """Check optional_deps for an app. On install: prompt if not present.
+    On update: auto-update if already installed, skip if not."""
+    for dep in app.get("optional_deps", []):
+        dep_name = dep["name"]
+        if dep_name not in APP_INDEX:
+            continue
+        dep_app = APP_INDEX[dep_name]
+        dep_dir = _install_dir(dep_app)
+        if dep_dir.is_dir():
+            if is_update:
+                info(f"Updating optional dependency {dep_name}…")
+                _update_app(dep_app)
+        else:
+            if not is_update:
+                try:
+                    ans = input(f"\n{_BLD}{dep.get('prompt', f'Install optional dependency {dep_name}?')} [y/N]{_R} ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    continue
+                if ans == "y":
+                    install_app(dep_app)
+
+
 def install_app(app: dict) -> None:
     """Clone repo into INSTALL_BASE (or app install_path) and run install.py."""
     _ensure_gh_creds()
@@ -1420,6 +1460,7 @@ def install_app(app: dict) -> None:
     _run_install_py(install_dir)
     _write_plist(app)
     ok(f"{app['name']} installed.")
+    _handle_optional_deps(app, is_update=False)
 
 
 def uninstall_app(app: dict) -> None:
@@ -2656,6 +2697,10 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                 if rs.stderr:
                     for ln in rs.stderr.strip().splitlines()[-6:]:
                         print(f"    {_Y}{ln}{_R}", flush=True)
+
+    # Step 6: handle optional dependencies for newly installed apps
+    for name in app_names:
+        _handle_optional_deps(APP_INDEX[name], is_update=False)
 
     ok(f"Phased install complete for: {', '.join(app_names)}")
 
