@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.13.4"
+VERSION      = "1.13.5"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -672,10 +672,6 @@ APPS: list[dict] = [
         "main_file":   "landnav.py",
         "service":     "landnav",
         "requires":    [],
-        "install_modes": [
-            {"key": "device", "label": "Testing Device (Raspberry Pi)",
-             "desc": "Full install — systemd service, watchdog, NM config, bridge tools, chisel"},
-        ],
     },
         {
         "name":        "Polaris",
