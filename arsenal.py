@@ -677,6 +677,18 @@ APPS: list[dict] = [
              "desc": "Full install — systemd service, watchdog, NM config, bridge tools, chisel"},
         ],
     },
+        {
+        "name":        "Polaris",
+        "repo":        "Polaris",
+        "github_url":  "https://github.com/pr0t31n/Polaris.git",
+        "description": "C2 server manager and real-time connection dashboard for LandNav. Manages chisel server, iodined, and msfconsole as independent processes. Flask + SocketIO dashboard on port 5900.",
+        "short_desc":  "C2 Server Mgr",
+        "port":        5900,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     None,
+        "requires":    ["LandNav"],
+    },
     {
         "name":        "Isotope",
         "repo":        "Isotope",
