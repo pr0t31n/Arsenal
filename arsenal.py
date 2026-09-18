@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.13.3"
+VERSION      = "1.13.4"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
@@ -687,7 +687,7 @@ APPS: list[dict] = [
         "flask":       True,
         "main_file":   "app.py",
         "service":     None,
-        "requires":    ["LandNav"],
+        "requires":    [],
     },
     {
         "name":        "Isotope",
