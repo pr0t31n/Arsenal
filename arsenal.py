@@ -36,7 +36,7 @@ import base64
 import getpass
 import select as _select
 
-VERSION      = "1.13.8"
+VERSION      = "1.14.0"
 INSTALL_BASE = Path("/opt/pr0t31n")
 SYSTEM       = platform.system()   # 'Linux' | 'Darwin'
 
