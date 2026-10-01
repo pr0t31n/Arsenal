@@ -2129,18 +2129,23 @@ def _normalise_pkg_item(key: str, item) -> list:
     return [str(item), ""]
 
 
-def _merge_app_phases(app_names: list) -> dict:
+def _merge_app_phases(app_names: list) -> tuple:
     """
     Collect and deduplicate packages from every app in app_names.
-    Returns dict keyed by _PKG_VARS entries plus OFFLINE_BUNDLE_URLS.
+    Returns (merged_dict, apps_with_git) where merged_dict is keyed by
+    _PKG_VARS entries plus OFFLINE_BUNDLE_URLS, and apps_with_git is the
+    set of app names that had a declarative GIT_TOOLS list.
     """
     merged: dict = {k: [] for k in _PKG_VARS}
     merged["OFFLINE_BUNDLE_URLS"] = {}
     seen:   dict = {k: set() for k in _PKG_VARS}
+    apps_with_git: set = set()
 
     for name in app_names:
         d = _install_dir(APP_INDEX[name])
         pkgs = _extract_packages_ast(d)
+        if pkgs.get("GIT_TOOLS"):
+            apps_with_git.add(name)
         for key in _PKG_VARS:
             for item in pkgs.get(key, []):
                 norm = _normalise_pkg_item(key, item)
@@ -2149,7 +2154,7 @@ def _merge_app_phases(app_names: list) -> dict:
                     seen[key].add(dk)
                     merged[key].append(norm)
         merged["OFFLINE_BUNDLE_URLS"].update(_extract_offline_bundles(d))
-    return merged
+    return merged, apps_with_git
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2632,7 +2637,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
 
     # Step 2: merge packages from all app installers
     info("Parsing install.py files and merging package lists…")
-    merged = _merge_app_phases(app_names)
+    merged, _apps_with_git = _merge_app_phases(app_names)
 
     total = sum(len(merged[k]) for k in _PKG_VARS)
     info(f"Total unique dependencies across {len(app_names)} app(s): {total}")
@@ -2653,7 +2658,9 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
         installer   = install_dir / "install.py"
         if installer.exists():
             info(f"Running post-install steps from {name}/install.py…")
-            extra = ["--skip-apt", "--skip-pip", "--skip-go", "--skip-git"]
+            extra = ["--skip-apt", "--skip-pip", "--skip-go"]
+            if name in _apps_with_git:
+                extra.append("--skip-git")
             if name in _modes:
                 extra += [f"--mode={_modes[name]}"]
             try:
