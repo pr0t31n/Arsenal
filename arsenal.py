@@ -2396,18 +2396,37 @@ def _phase_system(merged: dict, os_type: str) -> None:
             r = _spin_run("apt batch install", cmd, capture_output=True,
                           text=True, env=env, timeout=900)
             if r.returncode != 0:
-                warn("apt batch returned non-zero — checking individual results …")
+                warn("apt batch returned non-zero — will retry failures individually.")
         except subprocess.TimeoutExpired:
             warn("apt batch install timed out — recovering dpkg state …")
             _dpkg_lock_recover(env)
         except Exception as exc:
             warn(f"apt batch install failed: {exc}")
             _dpkg_lock_recover(env)
+        failed = [p for p in all_pkgs if not _apt_pkg_installed(p)]
         for pkg_name in all_pkgs:
-            ok = _apt_pkg_installed(pkg_name)
-            _log("system", pkg_name, desc_map.get(pkg_name, ""), ok,
-                 stdout="installed" if ok else "",
-                 stderr="" if ok else "not installed after batch")
+            if pkg_name not in failed:
+                _log("system", pkg_name, desc_map.get(pkg_name, ""), True,
+                     stdout="installed")
+        if failed:
+            info(f"Retrying {len(failed)} package(s) individually …")
+            for pkg_name in failed:
+                try:
+                    r2 = _spin_run(pkg_name,
+                        [pm, "install", "-y", "-q", pkg_name,
+                         "-o", "Dpkg::Options::=--force-confold"],
+                        capture_output=True, text=True, env=env, timeout=300)
+                    ok = r2.returncode == 0 or _apt_pkg_installed(pkg_name)
+                    _log("system", pkg_name, desc_map.get(pkg_name, ""), ok,
+                         stdout=r2.stdout, stderr=r2.stderr)
+                except subprocess.TimeoutExpired:
+                    _dpkg_lock_recover(env)
+                    ok = _apt_pkg_installed(pkg_name)
+                    _log("system", pkg_name, desc_map.get(pkg_name, ""), ok,
+                         error="timed out" if not ok else "installed (completed before kill)")
+                except Exception as exc:
+                    _log("system", pkg_name, desc_map.get(pkg_name, ""), False,
+                         error=str(exc))
     else:
         for item in items:
             pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
