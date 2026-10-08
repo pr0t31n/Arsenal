@@ -712,6 +712,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Dredge",
+        "repo":        "Dredge",
+        "github_url":  "https://github.com/pr0t31n/Dredge.git",
+        "description": "Windows endpoint security auditor (v1.0.0): PowerShell collector (26 modules) + Python analyzer (13 modules, 135+ findings). CIS Benchmarks, DISA STIGs, MS Security Baselines. Import mode + WinRM remote execution. Pure-CLI, managed by Crucible.",
+        "short_desc":  "Endpoint Security",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "dredge.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Shared",
         "repo":        "shared",
         "github_url":  "https://github.com/pr0t31n/shared.git",
