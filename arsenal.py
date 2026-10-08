@@ -2118,7 +2118,10 @@ def _normalise_pkg_item(key: str, item) -> list:
             return [pkg, binary]
         if key == "GIT_TOOLS":
             repo = item.get("repo") or item.get("url") or ""
-            path = item.get("path") or item.get("local_path") or ""
+            path = (item.get("path") or item.get("local_path")
+                    or item.get("dest") or "")
+            if isinstance(path, Path):
+                path = str(path)
             deps = item.get("deps") or item.get("pip_deps") or []
             return [repo, path, deps]
         # APT/DNF/PIP/BREW — grab first two string values
@@ -2129,23 +2132,18 @@ def _normalise_pkg_item(key: str, item) -> list:
     return [str(item), ""]
 
 
-def _merge_app_phases(app_names: list) -> tuple:
+def _merge_app_phases(app_names: list) -> dict:
     """
     Collect and deduplicate packages from every app in app_names.
-    Returns (merged_dict, apps_with_git) where merged_dict is keyed by
-    _PKG_VARS entries plus OFFLINE_BUNDLE_URLS, and apps_with_git is the
-    set of app names that had a declarative GIT_TOOLS list.
+    Returns dict keyed by _PKG_VARS entries plus OFFLINE_BUNDLE_URLS.
     """
     merged: dict = {k: [] for k in _PKG_VARS}
     merged["OFFLINE_BUNDLE_URLS"] = {}
     seen:   dict = {k: set() for k in _PKG_VARS}
-    apps_with_git: set = set()
 
     for name in app_names:
         d = _install_dir(APP_INDEX[name])
         pkgs = _extract_packages_ast(d)
-        if pkgs.get("GIT_TOOLS"):
-            apps_with_git.add(name)
         for key in _PKG_VARS:
             for item in pkgs.get(key, []):
                 norm = _normalise_pkg_item(key, item)
@@ -2154,13 +2152,37 @@ def _merge_app_phases(app_names: list) -> tuple:
                     seen[key].add(dk)
                     merged[key].append(norm)
         merged["OFFLINE_BUNDLE_URLS"].update(_extract_offline_bundles(d))
-    return merged, apps_with_git
+    return merged
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Install log (populated by phase runners, consumed by report generator)
 # ─────────────────────────────────────────────────────────────────────────────
 _INSTALL_LOG: list = []   # list[dict]
+
+
+def _dpkg_lock_recover(env: dict) -> None:
+    """Kill orphaned apt/dpkg processes and repair dpkg state after a timeout."""
+    for proc_name in ("dpkg", "apt-get", "apt"):
+        subprocess.run(["killall", "-9", proc_name],
+                       capture_output=True, check=False)
+    time.sleep(2)
+    for lock in ("/var/lib/dpkg/lock", "/var/lib/dpkg/lock-frontend",
+                 "/var/lib/apt/lists/lock", "/var/cache/apt/archives/lock"):
+        try:
+            os.remove(lock)
+        except FileNotFoundError:
+            pass
+    subprocess.run(["dpkg", "--configure", "-a"],
+                   env=env, capture_output=True, timeout=120, check=False)
+
+
+def _apt_pkg_installed(pkg: str) -> bool:
+    r = subprocess.run(
+        ["dpkg-query", "-W", "--showformat=${Status}", pkg],
+        capture_output=True, text=True,
+    )
+    return "install ok installed" in r.stdout
 
 
 def _log(phase: str, name: str, description: str,
@@ -2360,22 +2382,46 @@ def _phase_system(merged: dict, os_type: str) -> None:
             warn(f"apt upgrade failed: {exc}")
 
     print(f"\n{_BLD}── Phase: system packages ({Path(pm).name}) ─────────────{_R}")
-    for item in merged.get(pkg_list_key, []):
-        pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+    items = merged.get(pkg_list_key, [])
+    if not items:
+        info("No system packages requested.")
+    elif "apt" in pm:
+        all_pkgs = [it[0] if isinstance(it, (list, tuple)) else it for it in items]
+        desc_map = {(it[0] if isinstance(it, (list, tuple)) else it):
+                    (it[1] if isinstance(it, (list, tuple)) and len(it) >= 2 else "")
+                    for it in items}
+        cmd = [pm, "install", "-y", "-q",
+               "-o", "Dpkg::Options::=--force-confold"] + all_pkgs
         try:
-            if "apt" in pm:
-                cmd = [pm, "install", "-y", "-q", pkg,
-                       "-o", "Dpkg::Options::=--force-confold"]
-            elif "dnf" in pm or "yum" in pm:
-                cmd = [pm, "install", "-y", "-q", pkg]
-            else:
-                cmd = [pm, "install", "-y", pkg]
-            r = _spin_run(pkg, cmd, capture_output=True, text=True,
-                         env=env, timeout=180)
-            _log("system", pkg, desc, r.returncode == 0,
-                 stdout=r.stdout, stderr=r.stderr)
+            r = _spin_run("apt batch install", cmd, capture_output=True,
+                          text=True, env=env, timeout=900)
+            if r.returncode != 0:
+                warn("apt batch returned non-zero — checking individual results …")
+        except subprocess.TimeoutExpired:
+            warn("apt batch install timed out — recovering dpkg state …")
+            _dpkg_lock_recover(env)
         except Exception as exc:
-            _log("system", pkg, desc, False, error=str(exc))
+            warn(f"apt batch install failed: {exc}")
+            _dpkg_lock_recover(env)
+        for pkg_name in all_pkgs:
+            ok = _apt_pkg_installed(pkg_name)
+            _log("system", pkg_name, desc_map.get(pkg_name, ""), ok,
+                 stdout="installed" if ok else "",
+                 stderr="" if ok else "not installed after batch")
+    else:
+        for item in items:
+            pkg, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+            try:
+                if "dnf" in pm or "yum" in pm:
+                    cmd = [pm, "install", "-y", "-q", pkg]
+                else:
+                    cmd = [pm, "install", "-y", pkg]
+                r = _spin_run(pkg, cmd, capture_output=True, text=True,
+                             env=env, timeout=300)
+                _log("system", pkg, desc, r.returncode == 0,
+                     stdout=r.stdout, stderr=r.stderr)
+            except Exception as exc:
+                _log("system", pkg, desc, False, error=str(exc))
 
 
 _OFFLINE_REPO_DIR = "/opt/OfflineInstallers"
@@ -2492,16 +2538,52 @@ def _install_offline_bundle_arsenal(pkg_name: str, url: str) -> bool:
         shutil.rmtree(_tmp, ignore_errors=True)
 
 
+def _pip_installed() -> dict:
+    """Return {normalised_name: version} for every installed pip package."""
+    try:
+        from importlib.metadata import distributions
+        return {d.metadata["Name"].lower().replace("-", "_"): d.version
+                for d in distributions() if d.metadata.get("Name")}
+    except Exception:
+        return {}
+
+
+def _pip_spec_satisfied(spec: str, installed: dict) -> bool:
+    """Check whether a pip spec like 'requests>=2.28.0' is already satisfied."""
+    name = spec.split(">=")[0].split("==")[0].split("<=")[0].split("!=")[0] \
+               .split("<")[0].split(">")[0].split("[")[0].strip().lower().replace("-", "_")
+    if name not in installed:
+        return False
+    ver_part = spec[len(name):].strip().lstrip("[").split("]")[0] if "[" in spec else spec[len(name):].strip()
+    if not ver_part or ver_part.startswith("["):
+        return True
+    if ver_part.startswith(">="):
+        try:
+            from packaging.version import Version
+            return Version(installed[name]) >= Version(ver_part[2:])
+        except Exception:
+            return True
+    if ver_part.startswith("=="):
+        return installed[name] == ver_part[2:]
+    return True
+
+
 def _phase_pip(merged: dict) -> None:
     print(f"\n{_BLD}── Phase: pip packages ───────────────────────────────{_R}")
     _offline_urls = merged.get("OFFLINE_BUNDLE_URLS", {})
+    installed = _pip_installed()
+    skipped = 0
     for item in merged.get("PIP_PACKAGES", []):
         spec, desc = (item[0], item[1]) if len(item) >= 2 else (item[0], "")
+        if _pip_spec_satisfied(spec, installed):
+            _log("pip", spec, desc, True, stdout="already installed — skipped")
+            skipped += 1
+            continue
         try:
             r = _spin_run(spec,
                 [sys.executable, "-m", "pip", "install", "--quiet",
                  "--break-system-packages", spec],
-                capture_output=True, text=True, timeout=180)
+                capture_output=True, text=True, timeout=600)
             _log("pip", spec, desc, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
             if r.returncode != 0 and _offline_urls:
@@ -2511,6 +2593,8 @@ def _phase_pip(merged: dict) -> None:
                     _install_offline_bundle_arsenal(_pkg_name, _offline_urls[_pkg_name])
         except Exception as exc:
             _log("pip", spec, desc, False, error=str(exc))
+    if skipped:
+        info(f"pip: {skipped} package(s) already satisfied — skipped")
 
 
 def _phase_go(merged: dict) -> None:
@@ -2637,7 +2721,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
 
     # Step 2: merge packages from all app installers
     info("Parsing install.py files and merging package lists…")
-    merged, _apps_with_git = _merge_app_phases(app_names)
+    merged = _merge_app_phases(app_names)
 
     total = sum(len(merged[k]) for k in _PKG_VARS)
     info(f"Total unique dependencies across {len(app_names)} app(s): {total}")
@@ -2659,8 +2743,6 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
         if installer.exists():
             info(f"Running post-install steps from {name}/install.py…")
             extra = ["--skip-apt", "--skip-pip", "--skip-go"]
-            if name in _apps_with_git:
-                extra.append("--skip-git")
             if name in _modes:
                 extra += [f"--mode={_modes[name]}"]
             try:
