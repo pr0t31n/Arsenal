@@ -540,12 +540,11 @@ APPS: list[dict] = [
         "name":        "Bastion",
         "repo":        "Bastion",
         "github_url":  "https://github.com/pr0t31n/Bastion.git",
-        "description": "Firewall and network policy analysis platform — uploads configs for automated audit, vulnerability identification, and compliance reporting.",
-        "short_desc":  "Firewall Analysis",
-        "port":        5600,
-        "flask":       True,
-        "main_file":   "app.py",
-        "service":     "pr0t31n-bastion",
+        "description": "Firewall configuration audit — parses vendor configs for policy violations, shadowed rules, and compliance gaps.",
+        "short_desc":  "Firewall Audit",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "bastion.py",
         "requires":    [],
     },
     {
@@ -2755,11 +2754,23 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
     _phase_git(merged)
 
     # Step 4: run any app-specific post-install steps via install.py
+    # Tools that don't parse --skip-* flags will redo apt/pip from scratch,
+    # which on a Pi easily exceeds the timeout. Detect this via a quick AST
+    # check for "skip" in the source; if absent, skip the post-install entirely
+    # since Arsenal already handled all their deps in the merged phases above.
     _modes = install_modes or {}
     for name in app_names:
         install_dir = _install_dir(APP_INDEX[name])
         installer   = install_dir / "install.py"
         if installer.exists():
+            try:
+                _src = installer.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                _src = ""
+            _has_skip = "skip_apt" in _src or "skip-apt" in _src or "skip.apt" in _src
+            if not _has_skip:
+                ok(f"{name} post-install skipped (deps handled by Arsenal).")
+                continue
             info(f"Running post-install steps from {name}/install.py…")
             extra = ["--skip-apt", "--skip-pip", "--skip-go"]
             if name in _modes:
@@ -2768,13 +2779,12 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                 r = subprocess.run(
                     [sys.executable, str(installer)] + extra,
                     cwd=str(install_dir),
-                    capture_output=True, text=True, timeout=300,
+                    capture_output=True, text=True, timeout=600,
                 )
                 if r.returncode == 0:
                     ok(f"{name} post-install complete.")
                 else:
                     warn(f"{name} post-install returned {r.returncode}.")
-                    # Combine stdout + stderr so nothing is lost; show last 30 lines
                     combined = []
                     if r.stdout:
                         combined += r.stdout.strip().splitlines()
@@ -2794,6 +2804,12 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                 continue
             svc = APP_INDEX[name].get("service")
             if not svc:
+                continue
+            # Verify the unit file exists before attempting to start
+            chk = subprocess.run(
+                ["systemctl", "cat", svc],
+                capture_output=True, text=True)
+            if chk.returncode != 0:
                 continue
             info(f"Starting {svc}…")
             rs = subprocess.run(["systemctl", "start", svc],
