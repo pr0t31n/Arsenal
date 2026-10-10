@@ -245,11 +245,12 @@ def _clean_input(prompt: str = "") -> str:
     """
     sys.stdout.write(prompt)
     sys.stdout.flush()
+    repaint = prompt.lstrip("\n")
     try:
         while True:
             if _select.select([sys.stdin], [], [], 1.5)[0]:
                 return sys.stdin.readline().rstrip("\n")
-            sys.stdout.write(f"\r\033[2K{prompt}")
+            sys.stdout.write(f"\r\033[2K{repaint}")
             sys.stdout.flush()
     except (EOFError, KeyboardInterrupt):
         print()
@@ -1378,24 +1379,45 @@ def _update_app(app: dict, installer_args: "list[str] | None" = None) -> None:
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                  capture_output=True, text=True, env=_git_env())
     if r.returncode == 0:
-        _run_install_py(install_dir, extra_args=installer_args)
-        ok(f"{app['name']} updated.")
+        rc = _run_install_py(install_dir, extra_args=installer_args)
+        if rc == 0:
+            ok(f"{app['name']} updated.")
+        else:
+            warn(f"{app['name']} updated (install.py returned {rc}).")
     else:
         err(f"git pull failed for {app['name']}: {r.stderr.strip()[:120]}")
+        _FAILURES.append({
+            "phase": "git",
+            "name":  app["name"],
+            "description": "git pull --ff-only failed",
+            "success": False,
+            "stderr": r.stderr.strip()[:200],
+            "error": "git pull failed",
+        })
     _handle_optional_deps(app, is_update=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Install / Uninstall
 # ─────────────────────────────────────────────────────────────────────────────
-def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) -> None:
+def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) -> int:
     installer = install_dir / "install.py"
-    if installer.exists():
-        info(f"Running install.py in {install_dir.name}…")
-        cmd = [sys.executable, str(installer)] + (extra_args or [])
-        subprocess.run(cmd, cwd=str(install_dir))
-    else:
+    if not installer.exists():
         warn(f"No install.py found in {install_dir.name} — skipping post-install.")
+        return 0
+    info(f"Running install.py in {install_dir.name}…")
+    cmd = [sys.executable, str(installer)] + (extra_args or [])
+    r = subprocess.run(cmd, cwd=str(install_dir))
+    if r.returncode != 0:
+        _FAILURES.append({
+            "phase": "install.py",
+            "name":  install_dir.name,
+            "description": f"install.py exited with code {r.returncode}",
+            "success": False,
+            "stderr": "",
+            "error": f"install.py returned exit code {r.returncode}",
+        })
+    return r.returncode
 
 
 def _ensure_shared_current() -> None:
@@ -2170,6 +2192,7 @@ def _merge_app_phases(app_names: list) -> dict:
 # Install log (populated by phase runners, consumed by report generator)
 # ─────────────────────────────────────────────────────────────────────────────
 _INSTALL_LOG: list = []   # list[dict]
+_FAILURES: list = []      # list[dict] — collects failures across all paths
 
 
 def _dpkg_lock_recover(env: dict) -> None:
@@ -2198,7 +2221,7 @@ def _apt_pkg_installed(pkg: str) -> bool:
 
 def _log(phase: str, name: str, description: str,
          success: bool, stdout: str = "", stderr: str = "", error: str = "") -> None:
-    _INSTALL_LOG.append({
+    entry = {
         "phase":       phase,
         "name":        name,
         "description": description,
@@ -2206,7 +2229,10 @@ def _log(phase: str, name: str, description: str,
         "stdout":      stdout,
         "stderr":      stderr,
         "error":       error,
-    })
+    }
+    _INSTALL_LOG.append(entry)
+    if not success:
+        _FAILURES.append(entry)
     sym = f"{_G}[+]{_R}" if success else f"{_RD}[!]{_R}"
     print(f"  {sym}  {name}  —  {description[:60]}", flush=True)
     if not success and (stderr or error):
@@ -2219,6 +2245,28 @@ def _log(phase: str, name: str, description: str,
             lines = snippet
         for ln in lines:
             print(f"      {_RD}{ln}{_R}", flush=True)
+
+
+def _print_failure_summary() -> None:
+    """Print a consolidated failure summary, then clear the list."""
+    if not _FAILURES:
+        return
+    print(f"\n{_BLD}{_RD}{'═' * 60}{_R}")
+    print(f"{_BLD}{_RD}  FAILURES ({len(_FAILURES)}){_R}")
+    print(f"{_BLD}{_RD}{'═' * 60}{_R}")
+    for i, f in enumerate(_FAILURES, 1):
+        phase = f.get("phase", "?")
+        name  = f.get("name", "?")
+        desc  = f.get("description", "")
+        detail = (f.get("error") or f.get("stderr") or "").strip()
+        print(f"\n  {_RD}{i}. [{phase}] {name}{_R}")
+        if desc:
+            print(f"     {desc[:120]}")
+        if detail:
+            for ln in detail.splitlines()[:4]:
+                print(f"     {_Y}{ln[:120]}{_R}")
+    print(f"\n{_BLD}{_RD}{'═' * 60}{_R}\n")
+    _FAILURES.clear()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2722,6 +2770,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
     Packages are merged and deduplicated across all apps before execution.
     """
     _INSTALL_LOG.clear()
+    _FAILURES.clear()
     os_type = detect_os()
     info(f"Detected OS: {os_type}")
 
@@ -2804,10 +2853,34 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                         combined += r.stderr.strip().splitlines()
                     for ln in combined[-30:]:
                         print(f"    {_Y}{ln}{_R}", flush=True)
+                    _FAILURES.append({
+                        "phase": "post-install",
+                        "name":  name,
+                        "description": f"install.py exited with code {r.returncode}",
+                        "success": False,
+                        "stderr": "\n".join(combined[-10:]),
+                        "error": f"install.py returned {r.returncode}",
+                    })
             except subprocess.TimeoutExpired:
                 warn(f"{name} post-install timed out.")
+                _FAILURES.append({
+                    "phase": "post-install",
+                    "name":  name,
+                    "description": "install.py timed out after 600s",
+                    "success": False,
+                    "stderr": "",
+                    "error": "timed out after 600s",
+                })
             except Exception as exc:
                 warn(f"{name} post-install error: {exc}")
+                _FAILURES.append({
+                    "phase": "post-install",
+                    "name":  name,
+                    "description": str(exc)[:120],
+                    "success": False,
+                    "stderr": "",
+                    "error": str(exc),
+                })
 
     # Step 5: start services for newly installed apps (Linux / systemd only)
     if shutil.which("systemctl") and os_type not in ("macos", "windows"):
@@ -2838,6 +2911,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
     for name in app_names:
         _handle_optional_deps(APP_INDEX[name], is_update=False)
 
+    _print_failure_summary()
     ok(f"Phased install complete for: {', '.join(app_names)}")
 
 
@@ -3076,6 +3150,7 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
     if not outdated:
         ok("All installed apps are up to date.")
         return
+    _FAILURES.clear()
     print(f"\n{_BLD}Upgrading:{_R}")
     for app in outdated:
         print(f"  {_Y}▲{_R}  {app['name']}")
@@ -3117,6 +3192,7 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
         _update_app(app, installer_args=extra)
         status[name]["local_ver"]    = get_local_version(app)
         status[name]["needs_update"] = False
+    _print_failure_summary()
     ok("Upgrade complete.")
 
 
