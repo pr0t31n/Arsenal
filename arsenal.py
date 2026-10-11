@@ -1406,18 +1406,38 @@ def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) ->
         warn(f"No install.py found in {install_dir.name} — skipping post-install.")
         return 0
     info(f"Running install.py in {install_dir.name}…")
-    cmd = [sys.executable, str(installer)] + (extra_args or [])
-    r = subprocess.run(cmd, cwd=str(install_dir))
-    if r.returncode != 0:
+    cmd = [sys.executable, "-u", str(installer)] + (extra_args or [])
+    warnings: list[str] = []
+    _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    proc = subprocess.Popen(cmd, cwd=str(install_dir),
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    for raw_line in proc.stdout:
+        line = raw_line.decode("utf-8", errors="replace")
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        plain = _ansi_re.sub("", line).strip()
+        if plain.startswith("[!]") or plain.startswith("[✗]"):
+            warnings.append(plain)
+    proc.wait()
+    if proc.returncode != 0:
         _FAILURES.append({
             "phase": "install.py",
             "name":  install_dir.name,
-            "description": f"install.py exited with code {r.returncode}",
+            "description": f"install.py exited with code {proc.returncode}",
+            "success": False,
+            "stderr": "\n".join(warnings[-10:]),
+            "error": f"install.py returned exit code {proc.returncode}",
+        })
+    for w in warnings:
+        _FAILURES.append({
+            "phase": "install.py",
+            "name":  install_dir.name,
+            "description": w[4:].strip() if len(w) > 4 else w,
             "success": False,
             "stderr": "",
-            "error": f"install.py returned exit code {r.returncode}",
+            "error": w,
         })
-    return r.returncode
+    return proc.returncode
 
 
 def _ensure_shared_current() -> None:
