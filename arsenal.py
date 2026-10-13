@@ -840,7 +840,7 @@ def _build_display_items() -> list[dict]:
       • Remaining standalone tools (not a child of any parent) at the top level
         after the parent block, sorted alphabetically.
     """
-    _NO_NEST = {"Shared"}
+    _NO_NEST = {"Shared", "Arsenal"}
     nested: set[str] = set()
     for a in APPS:
         if a["flask"] or a.get("is_group"):
