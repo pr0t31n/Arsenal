@@ -205,6 +205,38 @@ def _git_spin_run(label: str, cmd: list, **kwargs) -> "subprocess.CompletedProce
     return r
 
 
+def _clean_pycache(repo_dir: "str | Path") -> bool:
+    """Delete all __pycache__ dirs in a repo. Returns True if any were removed."""
+    import shutil
+    repo_dir = Path(repo_dir)
+    removed = False
+    for pc in list(repo_dir.rglob("__pycache__")):
+        try:
+            shutil.rmtree(pc)
+            removed = True
+        except OSError:
+            pass
+    return removed
+
+
+def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "subprocess.CompletedProcess":
+    """git pull --ff-only with automatic __pycache__ cleanup on failure."""
+    r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                 capture_output=True, text=True, env=git_env)
+    if r.returncode != 0:
+        status = _git_run(["git", "-C", str(install_dir), "status", "--porcelain"],
+                          capture_output=True, text=True, env=git_env)
+        dirty = [l.strip() for l in (status.stdout or "").splitlines() if l.strip()]
+        if dirty and all("__pycache__" in f for f in dirty):
+            info("Cleaning __pycache__ blocking git pull…")
+            _clean_pycache(install_dir)
+            _git_run(["git", "-C", str(install_dir), "checkout", "--", "."],
+                     capture_output=True, text=True, env=git_env)
+            r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                         capture_output=True, text=True, env=git_env)
+    return r
+
+
 def _authed_url(url: str) -> str:
     """Embed GitHub token into a clone URL if credentials are cached."""
     token = _GH_CREDS.get("token", "")
@@ -1411,8 +1443,7 @@ def _update_app(app: dict, installer_args: "list[str] | None" = None) -> None:
         _ensure_shared_current()
     install_dir = _install_dir(app)
     info(f"Updating {app['name']}…")
-    r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                 capture_output=True, text=True, env=_git_env())
+    r = _git_pull_with_pycache_retry(install_dir, _git_env())
     if r.returncode == 0:
         rc = _run_install_py(install_dir, extra_args=installer_args)
         if rc == 0:
@@ -1483,8 +1514,7 @@ def _ensure_shared_current() -> None:
     shared_dir = _install_dir(shared)
     git_env = _git_env()
     if shared_dir.is_dir() and (shared_dir / ".git").is_dir():
-        r = _git_run(["git", "-C", str(shared_dir), "pull", "--ff-only"],
-                     capture_output=True, text=True, env=git_env)
+        r = _git_pull_with_pycache_retry(shared_dir, git_env)
         if r.returncode == 0 and "Already up to date" not in (r.stdout or ""):
             info("Shared modules updated.")
     elif not shared_dir.is_dir():
@@ -1534,8 +1564,7 @@ def install_app(app: dict) -> None:
 
     if install_dir.is_dir():
         info(f"{app['name']} already present — pulling latest…")
-        _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                 capture_output=True, text=True, env=git_env)
+        _git_pull_with_pycache_retry(install_dir, git_env)
     else:
         info(f"Cloning {app['github_url']}  →  {install_dir}")
         r = _git_run([
