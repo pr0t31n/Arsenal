@@ -1110,6 +1110,53 @@ def _write_plist(app: dict) -> Optional[Path]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Linux systemd unit management
+# ─────────────────────────────────────────────────────────────────────────────
+def _write_systemd_unit(app: dict) -> Optional[Path]:
+    """
+    Write (or overwrite) the systemd service unit for a Flask app on Linux.
+    Returns the unit path on success, None if not Linux or not a Flask app.
+    """
+    if SYSTEM != "Linux" or not app.get("flask"):
+        return None
+    svc = app.get("service")
+    if not svc:
+        return None
+
+    python_bin  = shutil.which("python3") or sys.executable
+    install_dir = _install_dir(app)
+    main_script = install_dir / app["main_file"]
+    unit_path   = Path(f"/etc/systemd/system/{svc}.service")
+
+    content = f"""[Unit]
+Description={app.get('description', app['name'])}
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory={install_dir}
+ExecStart={python_bin} {main_script}
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/{svc}.log
+StandardError=append:/var/log/{svc}.err
+
+[Install]
+WantedBy=multi-user.target
+"""
+    try:
+        unit_path.write_text(content)
+        unit_path.chmod(0o644)
+        subprocess.run(["systemctl", "daemon-reload"], check=False, timeout=10)
+        subprocess.run(["systemctl", "enable", svc], check=False, timeout=10)
+        ok(f"Wrote systemd unit: {unit_path}  →  {main_script}")
+        return unit_path
+    except Exception as exc:
+        warn(f"Could not write systemd unit for {app['name']}: {exc}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Service status
 # ─────────────────────────────────────────────────────────────────────────────
 def get_service_status(app: dict) -> str:
@@ -1300,6 +1347,7 @@ def restart_app(app: dict) -> bool:
 
     if SYSTEM == "Linux":
         if svc:
+            _write_systemd_unit(app)
             svc_file = Path(f"/etc/systemd/system/{svc}.service")
             if svc_file.exists():
                 r = subprocess.run(
@@ -1612,6 +1660,7 @@ def install_app(app: dict) -> None:
 
     _run_install_py(install_dir)
     _write_plist(app)
+    _write_systemd_unit(app)
     ok(f"{app['name']} installed.")
     _handle_optional_deps(app, is_update=False)
 
