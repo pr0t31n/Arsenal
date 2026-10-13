@@ -427,6 +427,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Codex",
+        "repo":        "Codex",
+        "github_url":  "https://github.com/pr0t31n/Codex.git",
+        "description": "Self-hosted knowledge base & wiki for the pr0t31n toolkit. Auto-scaffolds per-tool documentation from Arsenal registry, findings catalogues, and CLI introspection. TLS 1.3, CSRF, rate limiting.",
+        "short_desc":  "Wiki / KB",
+        "port":        5800,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     None,
+        "requires":    ["Arsenal"],
+    },
+    {
         "name":        "Bastion",
         "repo":        "Bastion",
         "github_url":  "https://github.com/pr0t31n/Bastion.git",
