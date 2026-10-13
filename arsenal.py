@@ -586,6 +586,12 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-crucible",
         "requires":    ["Shared"],
+        "managed":     [
+            "Aether", "Aether-B", "Aether-U", "Aether-Z",
+            "Auger", "AuthProbe", "Bastion", "Dredge", "Forge",
+            "Fracture", "Isotope", "OSift", "Quill",
+            "Scattershot3", "Siphon", "Trawler",
+        ],
     },
     {
         "name":        "Gauntlet",
@@ -759,34 +765,43 @@ def _build_display_items() -> list[dict]:
 
     Layout:
       • Flask apps and group parents at the top level, sorted alphabetically.
-      • Each parent's required tools indented below it, sorted alphabetically.
-      • Remaining standalone tools (not managed by any parent) at the top level
+      • Each parent's children indented below it, sorted alphabetically.
+        Children come from two sources:
+        - ``requires`` (install dependencies, minus Shared)
+        - ``managed`` (display-only children — not install dependencies)
+      • Remaining standalone tools (not a child of any parent) at the top level
         after the parent block, sorted alphabetically.
     """
     _NO_NEST = {"Shared"}
-    managed: set[str] = set()
+    nested: set[str] = set()
     for a in APPS:
         if a["flask"] or a.get("is_group"):
             for req in a.get("requires", []):
                 if req not in _NO_NEST:
-                    managed.add(req)
+                    nested.add(req)
+            for m in a.get("managed", []):
+                nested.add(m)
 
     items: list[dict] = []
     parents = sorted(
-        (a for a in APPS if (a["flask"] or a.get("is_group")) and a["name"] not in managed),
+        (a for a in APPS if (a["flask"] or a.get("is_group")) and a["name"] not in nested),
         key=lambda a: a["name"].lower(),
     )
     for pa in parents:
         items.append({"app": pa, "indent": 0})
-        for child_name in sorted(pa.get("requires", [])):
-            if child_name in _NO_NEST:
-                continue
+        child_names = set()
+        for req in pa.get("requires", []):
+            if req not in _NO_NEST:
+                child_names.add(req)
+        for m in pa.get("managed", []):
+            child_names.add(m)
+        for child_name in sorted(child_names):
             child = APP_INDEX.get(child_name)
             if child:
                 items.append({"app": child, "indent": 1})
 
     for sa in sorted(
-        (a for a in APPS if not a["flask"] and not a.get("is_group") and a["name"] not in managed),
+        (a for a in APPS if not a["flask"] and not a.get("is_group") and a["name"] not in nested),
         key=lambda a: a["name"].lower(),
     ):
         items.append({"app": sa, "indent": 0})
@@ -1427,7 +1442,7 @@ def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) ->
         return 0
     info(f"Running install.py in {install_dir.name}…")
     cmd = [sys.executable, "-u", str(installer)] + (extra_args or [])
-    warnings: list[str] = []
+    errors: list[str] = []
     _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
     proc = subprocess.Popen(cmd, cwd=str(install_dir),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -1436,8 +1451,8 @@ def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) ->
         sys.stdout.write(line)
         sys.stdout.flush()
         plain = _ansi_re.sub("", line).strip()
-        if plain.startswith("[!]") or plain.startswith("[✗]"):
-            warnings.append(plain)
+        if plain.startswith("[✗]"):
+            errors.append(plain)
     proc.wait()
     if proc.returncode != 0:
         _FAILURES.append({
@@ -1445,17 +1460,17 @@ def _run_install_py(install_dir: Path, extra_args: "list[str] | None" = None) ->
             "name":  install_dir.name,
             "description": f"install.py exited with code {proc.returncode}",
             "success": False,
-            "stderr": "\n".join(warnings[-10:]),
+            "stderr": "\n".join(errors[-10:]),
             "error": f"install.py returned exit code {proc.returncode}",
         })
-    for w in warnings:
+    for e in errors:
         _FAILURES.append({
             "phase": "install.py",
             "name":  install_dir.name,
-            "description": w[4:].strip() if len(w) > 4 else w,
+            "description": e[4:].strip() if len(e) > 4 else e,
             "success": False,
             "stderr": "",
-            "error": w,
+            "error": e,
         })
     return proc.returncode
 
