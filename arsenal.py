@@ -273,7 +273,7 @@ BANNER = r"""
 # Application catalogue
 # ─────────────────────────────────────────────────────────────────────────────
 APPS: list[dict] = [
-    # ── Managed tools (alphabetical) — standalone Python scripts managed by Crucible v2 ──
+    # ── Managed tools (alphabetical) — standalone Python scripts, can be installed independently ──
     {
         "name":        "Aether",
         "repo":        "Aether",
@@ -284,7 +284,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "aether.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Aether-B",
@@ -296,7 +296,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "aether_b.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Aether-U",
@@ -308,7 +308,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "aether_u.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Aether-Z",
@@ -320,19 +320,19 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "aether_z.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Anvil",
         "repo":        "Anvil",
         "github_url":  "https://github.com/pr0t31n/Anvil.git",
-        "description": "Process State Sweep — local host forensic snapshot: process inventory (root-shell heuristics), listening socket map (high-risk root-bound services), kernel module list, setuid binaries owned by non-root. Pure-CLI, managed by Crucible.",
+        "description": "Process State Sweep — local host forensic snapshot: process inventory (root-shell heuristics), listening socket map (high-risk root-bound services), kernel module list, setuid binaries owned by non-root.",
         "short_desc":  "Host PSS",
         "port":        None,
         "flask":       False,
         "main_file":   "anvil.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Architect",
@@ -356,7 +356,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "auger.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "AuthProbe",
@@ -368,7 +368,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "authprobe.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Bastion",
@@ -379,43 +379,43 @@ APPS: list[dict] = [
         "port":        None,
         "flask":       False,
         "main_file":   "bastion.py",
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Dredge",
         "repo":        "Dredge",
         "github_url":  "https://github.com/pr0t31n/Dredge.git",
-        "description": "Windows endpoint security auditor: PowerShell collector (26 modules) + Python analyzer (13 modules, 135+ findings). CIS Benchmarks, DISA STIGs, MS Security Baselines. Import mode + WinRM remote execution. Pure-CLI, managed by Crucible.",
+        "description": "Windows endpoint security auditor: PowerShell collector (26 modules) + Python analyzer (13 modules, 135+ findings). CIS Benchmarks, DISA STIGs, MS Security Baselines. Import mode + WinRM remote execution.",
         "short_desc":  "Endpoint Security",
         "port":        None,
         "flask":       False,
         "main_file":   "dredge.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Drift",
         "repo":        "Drift",
         "github_url":  "https://github.com/pr0t31n/Drift.git",
-        "description": "Configuration drift detector — compares current system state against baseline snapshots and flags deviations. Pure-CLI, managed by Crucible.",
+        "description": "Configuration drift detector — compares current system state against baseline snapshots and flags deviations.",
         "short_desc":  "Config Drift",
         "port":        None,
         "flask":       False,
         "main_file":   "drift.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Forge",
         "repo":        "Forge",
         "github_url":  "https://github.com/pr0t31n/Forge.git",
-        "description": "Cloud control-plane auditor: Azure (storage HTTPS-only, Key Vault soft-delete/purge-protection, VM OS disk encryption) and GCP (GCS uniform access, GCE default service account, project-level IAM owner/editor bindings). Read-only via az + gcloud CLIs. Pure-CLI, managed by Crucible.",
+        "description": "Cloud control-plane auditor: Azure (storage HTTPS-only, Key Vault soft-delete/purge-protection, VM OS disk encryption) and GCP (GCS uniform access, GCE default service account, project-level IAM owner/editor bindings). Read-only via az + gcloud CLIs.",
         "short_desc":  "Cloud Audit",
         "port":        None,
         "flask":       False,
         "main_file":   "forge.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Fracture",
@@ -427,19 +427,19 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "fracture.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Isotope",
         "repo":        "Isotope",
         "github_url":  "https://github.com/pr0t31n/Isotope.git",
-        "description": "Universal file analysis tool: identification, entropy/encryption detection, string extraction, code analysis, metadata extraction, binary/executable analysis, secrets scanning, hashing with IOC lookup, and recursive archive decomposition. Pure-CLI, managed by Crucible.",
+        "description": "Universal file analysis tool: identification, entropy/encryption detection, string extraction, code analysis, metadata extraction, binary/executable analysis, secrets scanning, hashing with IOC lookup, and recursive archive decomposition.",
         "short_desc":  "File Analysis",
         "port":        None,
         "flask":       False,
         "main_file":   "isotope.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "OSift",
@@ -451,7 +451,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "osift.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "pAIn",
@@ -463,19 +463,19 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "pain.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Phalanx",
         "repo":        "Phalanx",
         "github_url":  "https://github.com/pr0t31n/Phalanx.git",
-        "description": "Multi-protocol network stress and resilience tester — TCP/UDP/ICMP flood, SYN/ACK/FIN/RST variants, DNS amplification, HTTP/S layer-7, and Slowloris. Pure-CLI, managed by Crucible.",
+        "description": "Multi-protocol network stress and resilience tester — TCP/UDP/ICMP flood, SYN/ACK/FIN/RST variants, DNS amplification, HTTP/S layer-7, and Slowloris.",
         "short_desc":  "Network Stress",
         "port":        None,
         "flask":       False,
         "main_file":   "app.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Pivot",
@@ -487,19 +487,19 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "pivot/agent/main.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Quill",
         "repo":        "Quill",
         "github_url":  "https://github.com/pr0t31n/Quill.git",
-        "description": "iOS IPA static analyser: Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys). Pure-CLI, managed by Crucible.",
+        "description": "iOS IPA static analyser: Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys).",
         "short_desc":  "iOS Static",
         "port":        None,
         "flask":       False,
         "main_file":   "quill.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Scattershot3",
@@ -511,7 +511,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "scattershot3.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Siphon",
@@ -523,7 +523,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "siphon.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Trawler",
@@ -535,19 +535,19 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "trawler.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     {
         "name":        "Vault",
         "repo":        "Vault",
         "github_url":  "https://github.com/pr0t31n/Vault.git",
-        "description": "Active Directory credential-test orchestrator: wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection. Pure-CLI, managed by Crucible.",
+        "description": "Active Directory credential-test orchestrator: wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection.",
         "short_desc":  "AD Cred Test",
         "port":        None,
         "flask":       False,
         "main_file":   "vault.py",
         "service":     None,
-        "requires":    ["Shared"],
+        "requires":    [],
     },
     # ── Flask apps and group parents ──
     {
@@ -585,10 +585,7 @@ APPS: list[dict] = [
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-crucible",
-        "requires":    ["Aether", "Aether-B", "Aether-U", "Aether-Z", "Anvil", "Auger",
-                        "AuthProbe", "Bastion", "Dredge", "Drift", "Forge", "Fracture",
-                        "Isotope", "OSift", "pAIn", "Phalanx", "Pivot", "Quill",
-                        "Scattershot3", "Shared", "Siphon", "Trawler", "Vault"],
+        "requires":    ["Shared"],
     },
     {
         "name":        "Gauntlet",
@@ -766,11 +763,13 @@ def _build_display_items() -> list[dict]:
       • Remaining standalone tools (not managed by any parent) at the top level
         after the parent block, sorted alphabetically.
     """
+    _NO_NEST = {"Shared"}
     managed: set[str] = set()
     for a in APPS:
         if a["flask"] or a.get("is_group"):
             for req in a.get("requires", []):
-                managed.add(req)
+                if req not in _NO_NEST:
+                    managed.add(req)
 
     items: list[dict] = []
     parents = sorted(
@@ -780,6 +779,8 @@ def _build_display_items() -> list[dict]:
     for pa in parents:
         items.append({"app": pa, "indent": 0})
         for child_name in sorted(pa.get("requires", [])):
+            if child_name in _NO_NEST:
+                continue
             child = APP_INDEX.get(child_name)
             if child:
                 items.append({"app": child, "indent": 1})
