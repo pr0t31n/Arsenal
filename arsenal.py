@@ -3053,7 +3053,13 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                     "error": str(exc),
                 })
 
-    # Step 5: start services for newly installed apps (Linux / systemd only)
+    # Step 5: write service files (plist / systemd unit) for Flask apps
+    for name in app_names:
+        app = APP_INDEX[name]
+        _write_plist(app)
+        _write_systemd_unit(app)
+
+    # Step 6: start services for newly installed apps (Linux / systemd only)
     if shutil.which("systemctl") and os_type not in ("macos", "windows"):
         for name in app_names:
             if _modes.get(name) == "server":
@@ -3078,7 +3084,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                     for ln in rs.stderr.strip().splitlines()[-6:]:
                         print(f"    {_Y}{ln}{_R}", flush=True)
 
-    # Step 6: handle optional dependencies for newly installed apps
+    # Step 7: handle optional dependencies for newly installed apps
     for name in app_names:
         _handle_optional_deps(APP_INDEX[name], is_update=False)
 
