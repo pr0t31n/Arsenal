@@ -403,6 +403,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Basalt",
+        "repo":        "Basalt",
+        "github_url":  "https://github.com/pr0t31n/Basalt.git",
+        "description": "Encrypted file-level backup & restore with AES-256-CTR, HMAC-SHA256 authentication, SHA-256 manifest validation, and atomic rollback. NIST SP 800-132/800-171 compliant.",
+        "short_desc":  "Encrypted Backup",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "basalt.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Bastion",
         "repo":        "Bastion",
         "github_url":  "https://github.com/pr0t31n/Bastion.git",
