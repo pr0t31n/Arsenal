@@ -305,7 +305,7 @@ BANNER = r"""
 # Application catalogue
 # ─────────────────────────────────────────────────────────────────────────────
 APPS: list[dict] = [
-    # ── Managed tools (alphabetical) — standalone Python scripts, can be installed independently ──
+    # ── All tools (alphabetical) ──
     {
         "name":        "Aether",
         "repo":        "Aether",
@@ -367,6 +367,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Arbiter",
+        "repo":        "Arbiter",
+        "github_url":  "https://github.com/pr0t31n/Arbiter.git",
+        "description": "Engagement-driven pentest orchestration platform — manages clients, projects, and scope across all pr0t31n tools with unified findings, compliance mapping (12 frameworks), Nessus integration, Burp XML import, and purgatory workflow for discovered remote projects.",
+        "short_desc":  "Engagement Orchestrator",
+        "port":        5000,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-arbiter",
+        "requires":    ["Shared"],
+    },
+    {
         "name":        "Architect",
         "repo":        "Architect",
         "github_url":  "https://github.com/pr0t31n/Architect.git",
@@ -376,6 +388,19 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "ingestion/app.py",
         "service":     "architect-ingestion",
+        "requires":    [],
+    },
+    {
+        "name":        "Arsenal",
+        "repo":        "Arsenal",
+        "install_path": str(Path(__file__).resolve().parent),
+        "github_url":  "https://github.com/pr0t31n/Arsenal.git",
+        "description": "Installer and manager for the pr0t31n toolkit — checks, installs, updates, and uninstalls all pr0t31n tools.",
+        "short_desc":  "Toolkit Manager",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "arsenal.py",
+        "service":     None,
         "requires":    [],
     },
     {
@@ -415,15 +440,14 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Basalt",
-        "repo":        "Basalt",
-        "github_url":  "https://github.com/pr0t31n/Basalt.git",
-        "description": "Encrypted file-level backup & restore with AES-256-CTR, HMAC-SHA256 authentication, SHA-256 manifest validation, and atomic rollback. NIST SP 800-132/800-171 compliant.",
-        "short_desc":  "Encrypted Backup",
+        "name":        "Bastion",
+        "repo":        "Bastion",
+        "github_url":  "https://github.com/pr0t31n/Bastion.git",
+        "description": "Firewall configuration audit — parses vendor configs for policy violations, shadowed rules, and compliance gaps.",
+        "short_desc":  "Firewall Audit",
         "port":        None,
         "flask":       False,
-        "main_file":   "basalt.py",
-        "service":     None,
+        "main_file":   "bastion.py",
         "requires":    [],
     },
     {
@@ -439,15 +463,22 @@ APPS: list[dict] = [
         "requires":    ["Arsenal"],
     },
     {
-        "name":        "Bastion",
-        "repo":        "Bastion",
-        "github_url":  "https://github.com/pr0t31n/Bastion.git",
-        "description": "Firewall configuration audit — parses vendor configs for policy violations, shadowed rules, and compliance gaps.",
-        "short_desc":  "Firewall Audit",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "bastion.py",
-        "requires":    [],
+        "name":        "Crucible",
+        "repo":        "Crucible",
+        "github_url":  "https://github.com/pr0t31n/Crucible.git",
+        "description": "Unified pentest orchestration platform — manages all pr0t31n tools (network, web, API, wireless, OSINT, database, cloud, endpoint, file analysis, compliance, AI red-team) in a session-managed dashboard with live findings streaming. Replaces Vantage, Spectre, and Crucible v1.",
+        "short_desc":  "Tool Orchestrator",
+        "port":        5100,
+        "flask":       True,
+        "main_file":   "app.py",
+        "service":     "pr0t31n-crucible",
+        "requires":    ["Shared"],
+        "managed":     [
+            "Aether", "Aether-B", "Aether-U", "Aether-Z",
+            "Auger", "AuthProbe", "Bastion", "Dredge", "Forge",
+            "Fracture", "Isotope", "OSift", "Quill",
+            "Scattershot3", "Siphon", "Trawler",
+        ],
     },
     {
         "name":        "Dredge",
@@ -498,170 +529,6 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Isotope",
-        "repo":        "Isotope",
-        "github_url":  "https://github.com/pr0t31n/Isotope.git",
-        "description": "Universal file analysis tool: identification, entropy/encryption detection, string extraction, code analysis, metadata extraction, binary/executable analysis, secrets scanning, hashing with IOC lookup, and recursive archive decomposition.",
-        "short_desc":  "File Analysis",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "isotope.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "OSift",
-        "repo":        "OSift",
-        "github_url":  "https://github.com/pr0t31n/OSift.git",
-        "description": "Comprehensive OSINT framework — 19 recon phases: DNS, breach intelligence, GitHub secret detection, cloud asset discovery, and M365 enumeration.",
-        "short_desc":  "OSINT",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "osift.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "pAIn",
-        "repo":        "pAIn",
-        "github_url":  "https://github.com/pr0t31n/pAIn.git",
-        "description": "AI pipeline red-team evaluation tool — tests transcription and classification AI systems for prompt injection via embedded payloads in PDF, image, and audio file metadata, content layers, and spoken audio content.",
-        "short_desc":  "AI Red-Team",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "pain.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Phalanx",
-        "repo":        "Phalanx",
-        "github_url":  "https://github.com/pr0t31n/Phalanx.git",
-        "description": "Multi-protocol network stress and resilience tester — TCP/UDP/ICMP flood, SYN/ACK/FIN/RST variants, DNS amplification, HTTP/S layer-7, and Slowloris.",
-        "short_desc":  "Network Stress",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "app.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Pivot",
-        "repo":        "Pivot",
-        "github_url":  "https://github.com/pr0t31n/Pivot.git",
-        "description": "mTLS-authenticated SOCKS5 relay daemon — asyncio agent/client for secure network pivoting with transparent iptables proxy support.",
-        "short_desc":  "mTLS SOCKS5 Relay",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "pivot/agent/main.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Quill",
-        "repo":        "Quill",
-        "github_url":  "https://github.com/pr0t31n/Quill.git",
-        "description": "iOS IPA static analyser: Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys).",
-        "short_desc":  "iOS Static",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "quill.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Scattershot3",
-        "repo":        "Scattershot3",
-        "github_url":  "https://github.com/pr0t31n/Scattershot3.git",
-        "description": "Network pentest recon — 13-phase pipeline: host discovery, port scanning, TLS analysis, AD/Kerberos enumeration, and web application testing.",
-        "short_desc":  "Network",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "scattershot3.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Siphon",
-        "repo":        "Siphon",
-        "github_url":  "https://github.com/pr0t31n/Siphon.git",
-        "description": "Multi-phase API pentest orchestrator — OWASP API Top 10 2023 coverage: BOLA, BFLA, mass assignment, JWT attacks, rate limit bypass, and data exposure testing.",
-        "short_desc":  "API",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "siphon.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Trawler",
-        "repo":        "Trawler",
-        "github_url":  "https://github.com/pr0t31n/Trawler.git",
-        "description": "Passive pcap-based traffic analyser — per-target external + internal risk surfacing. Auto-triggers after Scattershot3 scope completion. Emits findings into the universal schema.",
-        "short_desc":  "PCAP Analyser",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "trawler.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Vault",
-        "repo":        "Vault",
-        "github_url":  "https://github.com/pr0t31n/Vault.git",
-        "description": "Active Directory credential-test orchestrator: wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection.",
-        "short_desc":  "AD Cred Test",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "vault.py",
-        "service":     None,
-        "requires":    [],
-    },
-    # ── Flask apps and group parents ──
-    {
-        "name":        "Arbiter",
-        "repo":        "Arbiter",
-        "github_url":  "https://github.com/pr0t31n/Arbiter.git",
-        "description": "Engagement-driven pentest orchestration platform — manages clients, projects, and scope across all pr0t31n tools with unified findings, compliance mapping (12 frameworks), Nessus integration, Burp XML import, and purgatory workflow for discovered remote projects.",
-        "short_desc":  "Engagement Orchestrator",
-        "port":        5000,
-        "flask":       True,
-        "main_file":   "app.py",
-        "service":     "pr0t31n-arbiter",
-        "requires":    ["Shared"],
-    },
-    {
-        "name":        "Arsenal",
-        "repo":        "Arsenal",
-        "install_path": str(Path(__file__).resolve().parent),
-        "github_url":  "https://github.com/pr0t31n/Arsenal.git",
-        "description": "Installer and manager for the pr0t31n toolkit — checks, installs, updates, and uninstalls all pr0t31n tools.",
-        "short_desc":  "Toolkit Manager",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "arsenal.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
-        "name":        "Crucible",
-        "repo":        "Crucible",
-        "github_url":  "https://github.com/pr0t31n/Crucible.git",
-        "description": "Unified pentest orchestration platform — manages all pr0t31n tools (network, web, API, wireless, OSINT, database, cloud, endpoint, file analysis, compliance, AI red-team) in a session-managed dashboard with live findings streaming. Replaces Vantage, Spectre, and Crucible v1.",
-        "short_desc":  "Tool Orchestrator",
-        "port":        5100,
-        "flask":       True,
-        "main_file":   "app.py",
-        "service":     "pr0t31n-crucible",
-        "requires":    ["Shared"],
-        "managed":     [
-            "Aether", "Aether-B", "Aether-U", "Aether-Z",
-            "Auger", "AuthProbe", "Bastion", "Dredge", "Forge",
-            "Fracture", "Isotope", "OSift", "Quill",
-            "Scattershot3", "Siphon", "Trawler",
-        ],
-    },
-    {
         "name":        "Gauntlet",
         "repo":        "Gauntlet",
         "github_url":  "https://github.com/pr0t31n/Gauntlet.git",
@@ -707,6 +574,18 @@ APPS: list[dict] = [
         "flask":       True,
         "main_file":   "agent.py",
         "service":     "helm-agent",
+        "requires":    [],
+    },
+    {
+        "name":        "Isotope",
+        "repo":        "Isotope",
+        "github_url":  "https://github.com/pr0t31n/Isotope.git",
+        "description": "Universal file analysis tool: identification, entropy/encryption detection, string extraction, code analysis, metadata extraction, binary/executable analysis, secrets scanning, hashing with IOC lookup, and recursive archive decomposition.",
+        "short_desc":  "File Analysis",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "isotope.py",
+        "service":     None,
         "requires":    [],
     },
     {
@@ -774,6 +653,54 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "OSift",
+        "repo":        "OSift",
+        "github_url":  "https://github.com/pr0t31n/OSift.git",
+        "description": "Comprehensive OSINT framework — 19 recon phases: DNS, breach intelligence, GitHub secret detection, cloud asset discovery, and M365 enumeration.",
+        "short_desc":  "OSINT",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "osift.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "pAIn",
+        "repo":        "pAIn",
+        "github_url":  "https://github.com/pr0t31n/pAIn.git",
+        "description": "AI pipeline red-team evaluation tool — tests transcription and classification AI systems for prompt injection via embedded payloads in PDF, image, and audio file metadata, content layers, and spoken audio content.",
+        "short_desc":  "AI Red-Team",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "pain.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Phalanx",
+        "repo":        "Phalanx",
+        "github_url":  "https://github.com/pr0t31n/Phalanx.git",
+        "description": "Multi-protocol network stress and resilience tester — TCP/UDP/ICMP flood, SYN/ACK/FIN/RST variants, DNS amplification, HTTP/S layer-7, and Slowloris.",
+        "short_desc":  "Network Stress",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "app.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Pivot",
+        "repo":        "Pivot",
+        "github_url":  "https://github.com/pr0t31n/Pivot.git",
+        "description": "mTLS-authenticated SOCKS5 relay daemon — asyncio agent/client for secure network pivoting with transparent iptables proxy support.",
+        "short_desc":  "mTLS SOCKS5 Relay",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "pivot/agent/main.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Polaris",
         "repo":        "Polaris",
         "github_url":  "https://github.com/pr0t31n/Polaris.git",
@@ -799,6 +726,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Quill",
+        "repo":        "Quill",
+        "github_url":  "https://github.com/pr0t31n/Quill.git",
+        "description": "iOS IPA static analyser: Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys).",
+        "short_desc":  "iOS Static",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "quill.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Quiver",
         "repo":        "Quiver",
         "github_url":  "https://github.com/pr0t31n/Quiver.git",
@@ -808,6 +747,18 @@ APPS: list[dict] = [
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-quiver",
+        "requires":    [],
+    },
+    {
+        "name":        "Scattershot3",
+        "repo":        "Scattershot3",
+        "github_url":  "https://github.com/pr0t31n/Scattershot3.git",
+        "description": "Network pentest recon — 13-phase pipeline: host discovery, port scanning, TLS analysis, AD/Kerberos enumeration, and web application testing.",
+        "short_desc":  "Network",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "scattershot3.py",
+        "service":     None,
         "requires":    [],
     },
     {
@@ -822,6 +773,42 @@ APPS: list[dict] = [
         "service":     None,
         "requires":    [],
     },
+    {
+        "name":        "Siphon",
+        "repo":        "Siphon",
+        "github_url":  "https://github.com/pr0t31n/Siphon.git",
+        "description": "Multi-phase API pentest orchestrator — OWASP API Top 10 2023 coverage: BOLA, BFLA, mass assignment, JWT attacks, rate limit bypass, and data exposure testing.",
+        "short_desc":  "API",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "siphon.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Trawler",
+        "repo":        "Trawler",
+        "github_url":  "https://github.com/pr0t31n/Trawler.git",
+        "description": "Passive pcap-based traffic analyser — per-target external + internal risk surfacing. Auto-triggers after Scattershot3 scope completion. Emits findings into the universal schema.",
+        "short_desc":  "PCAP Analyser",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "trawler.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
+        "name":        "Vault",
+        "repo":        "Vault",
+        "github_url":  "https://github.com/pr0t31n/Vault.git",
+        "description": "Active Directory credential-test orchestrator: wraps impacket-secretsdump (DCSync/SAM), impacket-GetUserSPNs (Kerberoasting), impacket-GetNPUsers (AS-REP roasting), and SMB-signing inspection.",
+        "short_desc":  "AD Cred Test",
+        "port":        None,
+        "flask":       False,
+        "main_file":   "vault.py",
+        "service":     None,
+        "requires":    [],
+    },
 ]
 
 APP_INDEX: dict[str, dict] = {a["name"]: a for a in APPS}
@@ -832,13 +819,12 @@ def _build_display_items() -> list[dict]:
     Build the ordered display list for the curses menu.
 
     Layout:
-      • Flask apps and group parents at the top level, sorted alphabetically.
+      • ALL top-level entries (parents AND standalones) sorted alphabetically
+        together — no grouping by type.
       • Each parent's children indented below it, sorted alphabetically.
         Children come from two sources:
-        - ``requires`` (install dependencies, minus Shared)
+        - ``requires`` (install dependencies, minus _NO_NEST)
         - ``managed`` (display-only children — not install dependencies)
-      • Remaining standalone tools (not a child of any parent) at the top level
-        after the parent block, sorted alphabetically.
     """
     _NO_NEST = {"Shared", "Arsenal"}
     nested: set[str] = set()
@@ -850,29 +836,30 @@ def _build_display_items() -> list[dict]:
             for m in a.get("managed", []):
                 nested.add(m)
 
-    items: list[dict] = []
-    parents = sorted(
-        (a for a in APPS if (a["flask"] or a.get("is_group")) and a["name"] not in nested),
+    parent_set = {
+        a["name"] for a in APPS
+        if (a["flask"] or a.get("is_group")) and a["name"] not in nested
+    }
+
+    top_level = sorted(
+        (a for a in APPS if a["name"] not in nested),
         key=lambda a: a["name"].lower(),
     )
-    for pa in parents:
-        items.append({"app": pa, "indent": 0})
-        child_names = set()
-        for req in pa.get("requires", []):
-            if req not in _NO_NEST:
-                child_names.add(req)
-        for m in pa.get("managed", []):
-            child_names.add(m)
-        for child_name in sorted(child_names):
-            child = APP_INDEX.get(child_name)
-            if child:
-                items.append({"app": child, "indent": 1})
 
-    for sa in sorted(
-        (a for a in APPS if not a["flask"] and not a.get("is_group") and a["name"] not in nested),
-        key=lambda a: a["name"].lower(),
-    ):
-        items.append({"app": sa, "indent": 0})
+    items: list[dict] = []
+    for app in top_level:
+        items.append({"app": app, "indent": 0})
+        if app["name"] in parent_set:
+            child_names = set()
+            for req in app.get("requires", []):
+                if req not in _NO_NEST:
+                    child_names.add(req)
+            for m in app.get("managed", []):
+                child_names.add(m)
+            for child_name in sorted(child_names):
+                child = APP_INDEX.get(child_name)
+                if child:
+                    items.append({"app": child, "indent": 1})
 
     return items
 
