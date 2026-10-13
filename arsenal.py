@@ -1544,6 +1544,8 @@ def _update_app(app: dict, installer_args: "list[str] | None" = None) -> None:
             "stderr": r.stderr.strip()[:200],
             "error": "git pull failed",
         })
+    _write_plist(app)
+    _write_systemd_unit(app)
     _handle_optional_deps(app, is_update=True)
 
 
