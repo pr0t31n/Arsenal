@@ -102,6 +102,43 @@ def _apt_pkg_installed(pkg: str) -> bool:
     return "install ok installed" in r.stdout
 
 
+def _brew_installed_set() -> set:
+    """Return the set of currently installed Homebrew formulae and casks."""
+    brew_path = shutil.which("brew")
+    if not brew_path:
+        for p in ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]:
+            if os.path.isfile(p):
+                brew_path = p
+                break
+    if not brew_path:
+        return set()
+    try:
+        r = subprocess.run([brew_path, "list", "--formula", "-1"],
+                           capture_output=True, text=True, check=True)
+        installed = set(r.stdout.strip().splitlines())
+        r2 = subprocess.run([brew_path, "list", "--cask", "-1"],
+                            capture_output=True, text=True, check=False)
+        if r2.returncode == 0:
+            installed.update(r2.stdout.strip().splitlines())
+        return installed
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return set()
+
+
+def _pip_installed(pkg_spec: str) -> bool:
+    """Return True if a pip package spec is already importable."""
+    import importlib.util
+    name = pkg_spec.split(">=")[0].split("==")[0].split("[")[0].split("<")[0].strip()
+    _IMPORT_MAP = {
+        "python-docx": "docx", "python-nmap": "nmap",
+        "windows-curses": "_curses",
+    }
+    mod = _IMPORT_MAP.get(name, name.replace("-", "_"))
+    try:
+        return importlib.util.find_spec(mod) is not None
+    except (ModuleNotFoundError, ValueError):
+        return False
+
 
 # ─── root / admin check ──────────────────────────────────────────────────────
 
@@ -159,8 +196,16 @@ def _brew_install(pkgs: list) -> None:
         warn("Homebrew not found; skipping brew installs.")
         warn("  Install Homebrew from https://brew.sh then re-run this installer.")
         return
+    installed = _brew_installed_set()
+    missing = [p for p in pkgs if p not in installed]
+    for p in pkgs:
+        if p in installed:
+            info(f"{p} already installed (brew).")
+    if not missing:
+        info("All brew packages already installed.")
+        return
     sudo_user = os.environ.get("SUDO_USER", "")
-    for pkg in pkgs:
+    for pkg in missing:
         try:
             if os.getuid() == 0:
                 if not sudo_user:
@@ -190,41 +235,62 @@ def install_system_packages(os_type: str, args) -> None:
         return
 
     if os_type == "apt":
-        info("Running apt update…")
-        run(["apt-get", "update", "-y"])
-        # Repair any broken package state (e.g. failed third-party postinst hooks)
-        # before attempting our own installs.
-        info("Repairing broken packages…")
-        subprocess.run(["apt-get", "install", "-f", "-y"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        info("Installing APT packages…")
-        try:
-            run(["apt-get", "install", "-y"] + APT_PKGS)
-        except RuntimeError:
-            # apt-get can return non-zero even when our packages installed
-            # successfully — a common cause is third-party postinst hook
-            # failures (e.g. sqlmap, commix) that are unrelated to Arsenal.
-            missing = [p for p in APT_PKGS if not _apt_pkg_installed(p)]
-            if missing:
-                raise RuntimeError(
-                    f"apt-get install failed and these packages are missing: {missing}"
-                )
-            warn("apt-get exited non-zero (likely an unrelated postinst hook failure).")
-            warn("All required packages are installed — continuing.")
+        missing = [p for p in APT_PKGS if not _apt_pkg_installed(p)]
+        for p in APT_PKGS:
+            if p not in missing:
+                info(f"{p} already installed (apt).")
+        if not missing:
+            info("All APT packages already installed.")
+        else:
+            info("Running apt update…")
+            run(["apt-get", "update", "-y"])
+            # Repair any broken package state (e.g. failed third-party postinst hooks)
+            # before attempting our own installs.
+            info("Repairing broken packages…")
+            subprocess.run(["apt-get", "install", "-f", "-y"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            info(f"Installing {len(missing)} missing APT packages: {' '.join(missing)}")
+            try:
+                run(["apt-get", "install", "-y"] + missing)
+            except RuntimeError:
+                # apt-get can return non-zero even when our packages installed
+                # successfully — a common cause is third-party postinst hook
+                # failures (e.g. sqlmap, commix) that are unrelated to Arsenal.
+                still_missing = [p for p in missing if not _apt_pkg_installed(p)]
+                if still_missing:
+                    raise RuntimeError(
+                        f"apt-get install failed and these packages are missing: {still_missing}"
+                    )
+                warn("apt-get exited non-zero (likely an unrelated postinst hook failure).")
+                warn("All required packages are installed — continuing.")
 
     elif os_type == "dnf":
-        info("Installing DNF packages…")
-        run(["dnf", "install", "-y"] + DNF_PKGS)
+        missing = [p for p in DNF_PKGS if subprocess.run(
+            ["rpm", "-q", p], capture_output=True).returncode != 0]
+        if not missing:
+            info("All DNF packages already installed.")
+        else:
+            info(f"Installing {len(missing)} missing DNF packages: {' '.join(missing)}")
+            run(["dnf", "install", "-y"] + missing)
 
     elif os_type == "zypper":
-        info("Installing zypper packages…")
-        run(["zypper", "install", "-y"] + ZYPPER_PKGS)
+        missing = [p for p in ZYPPER_PKGS if subprocess.run(
+            ["rpm", "-q", p], capture_output=True).returncode != 0]
+        if not missing:
+            info("All zypper packages already installed.")
+        else:
+            info(f"Installing {len(missing)} missing zypper packages: {' '.join(missing)}")
+            run(["zypper", "install", "-y"] + missing)
 
     else:
         warn(f"Unknown OS type '{os_type}' — attempting apt install.")
         try:
-            run(["apt-get", "update", "-y"])
-            run(["apt-get", "install", "-y"] + APT_PKGS)
+            missing = [p for p in APT_PKGS if not _apt_pkg_installed(p)]
+            if missing:
+                run(["apt-get", "update", "-y"])
+                run(["apt-get", "install", "-y"] + missing)
+            else:
+                info("All packages already installed.")
         except RuntimeError:
             warn("apt-get failed — install git, python3, python3-pip, and psmisc manually.")
 
@@ -246,7 +312,16 @@ def install_pip_packages(os_type: str, args) -> None:
         return
     pip  = _pip_cmd()
     pkgs = PIP_PKGS_WINDOWS if os_type == "windows" else PIP_PKGS_COMMON
+    to_install = []
     for pkg in pkgs:
+        if _pip_installed(pkg):
+            info(f"{pkg} already installed (pip).")
+        else:
+            to_install.append(pkg)
+    if not to_install:
+        info("All pip packages already installed.")
+        return
+    for pkg in to_install:
         info(f"pip install {pkg} …")
         extra = [] if os_type == "windows" else ["--break-system-packages"]
         try:
