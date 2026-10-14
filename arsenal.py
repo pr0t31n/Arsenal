@@ -2582,21 +2582,42 @@ def _phase_system(merged: dict, os_type: str) -> None:
     env = os.environ.copy()
     env["DEBIAN_FRONTEND"] = "noninteractive"
 
+
+def _apt_lists_fresh(max_age_days=30):
+    """Return True if apt package lists were updated within max_age_days."""
+    import time
+    apt_lists = Path("/var/lib/apt/lists/")
+    if not apt_lists.is_dir():
+        return False
+    try:
+        mtime = max(
+            (f.stat().st_mtime for f in apt_lists.iterdir()
+             if f.is_file() and not f.name.startswith(".")),
+            default=0)
+    except OSError:
+        return False
+    if mtime == 0:
+        return False
+    age_days = (time.time() - mtime) / 86400
+    return age_days < max_age_days
     # apt update + upgrade — once, before any package installs
     if "apt" in pm:
-        print(f"\n{_BLD}── Phase: apt update + upgrade ───────────────────────{_R}")
-        try:
-            subprocess.run([pm, "update", "-qq"], env=env, timeout=180)
-        except subprocess.TimeoutExpired:
-            warn("apt update timed out — continuing with cached package lists.")
-        except Exception as exc:
-            warn(f"apt update failed: {exc}")
-        try:
-            subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=3600)
-        except subprocess.TimeoutExpired:
-            warn("apt upgrade timed out after 60 min — continuing with package installs.")
-        except Exception as exc:
-            warn(f"apt upgrade failed: {exc}")
+        if _apt_lists_fresh(30):
+            info("apt lists are fresh (< 30 days) — skipping apt update/upgrade.")
+        else:
+            print(f"\n{_BLD}── Phase: apt update + upgrade ───────────────────────{_R}")
+            try:
+                subprocess.run([pm, "update", "-qq"], env=env, timeout=180)
+            except subprocess.TimeoutExpired:
+                warn("apt update timed out — continuing with cached package lists.")
+            except Exception as exc:
+                warn(f"apt update failed: {exc}")
+            try:
+                subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=3600)
+            except subprocess.TimeoutExpired:
+                warn("apt upgrade timed out after 60 min — continuing with package installs.")
+            except Exception as exc:
+                warn(f"apt upgrade failed: {exc}")
 
     print(f"\n{_BLD}── Phase: system packages ({Path(pm).name}) ─────────────{_R}")
     items = merged.get(pkg_list_key, [])
@@ -3329,23 +3350,27 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
     if os_type not in ("macos", "windows"):
         pm = shutil.which("apt-get") or shutil.which("apt")
         if pm and "apt" in pm:
-            env = os.environ.copy()
-            env["DEBIAN_FRONTEND"] = "noninteractive"
-            print(f"{_BLD}── Phase: apt update + upgrade (once) ──────────────{_R}")
-            try:
-                subprocess.run([pm, "update", "-qq"], env=env, timeout=180)
-            except subprocess.TimeoutExpired:
-                warn("apt update timed out — continuing with cached package lists.")
-            except Exception as exc:
-                warn(f"apt update failed: {exc}")
-            try:
-                subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=3600)
-            except subprocess.TimeoutExpired:
-                warn("apt upgrade timed out after 60 min — continuing.")
-            except Exception as exc:
-                warn(f"apt upgrade failed: {exc}")
-            _ran_apt = True
-            print()
+            if _apt_lists_fresh(30):
+                info("apt lists are fresh (< 30 days) — skipping apt update/upgrade.")
+                _ran_apt = True
+            else:
+                env = os.environ.copy()
+                env["DEBIAN_FRONTEND"] = "noninteractive"
+                print(f"{_BLD}── Phase: apt update + upgrade (once) ──────────────{_R}")
+                try:
+                    subprocess.run([pm, "update", "-qq"], env=env, timeout=180)
+                except subprocess.TimeoutExpired:
+                    warn("apt update timed out — continuing with cached package lists.")
+                except Exception as exc:
+                    warn(f"apt update failed: {exc}")
+                try:
+                    subprocess.run([pm, "upgrade", "-y", "-qq"], env=env, timeout=3600)
+                except subprocess.TimeoutExpired:
+                    warn("apt upgrade timed out after 60 min — continuing.")
+                except Exception as exc:
+                    warn(f"apt upgrade failed: {exc}")
+                _ran_apt = True
+                print()
 
     skip_flags = ["--skip-apt"] if _ran_apt else []
     for app in outdated:
