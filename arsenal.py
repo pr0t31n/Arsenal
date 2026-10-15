@@ -219,21 +219,36 @@ def _clean_pycache(repo_dir: "str | Path") -> bool:
     return removed
 
 
+def _pycache_conflict_in_stderr(stderr: str) -> bool:
+    """True when git pull stderr lists only __pycache__ paths as conflicts."""
+    if not stderr:
+        return False
+    conflict_files = []
+    in_block = False
+    for line in stderr.splitlines():
+        if "would be overwritten by merge" in line or "would be removed by merge" in line:
+            in_block = True
+            continue
+        if in_block:
+            stripped = line.strip()
+            if stripped and not stripped.startswith(("Please", "Aborting", "error:")):
+                conflict_files.append(stripped)
+            else:
+                in_block = False
+    return bool(conflict_files) and all("__pycache__" in f for f in conflict_files)
+
+
 def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "subprocess.CompletedProcess":
     """git pull --ff-only with automatic __pycache__ cleanup on failure."""
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                  capture_output=True, text=True, env=git_env)
-    if r.returncode != 0:
-        status = _git_run(["git", "-C", str(install_dir), "status", "--porcelain"],
-                          capture_output=True, text=True, env=git_env)
-        dirty = [l.strip() for l in (status.stdout or "").splitlines() if l.strip()]
-        if dirty and all("__pycache__" in f for f in dirty):
-            info("Cleaning __pycache__ blocking git pull…")
-            _clean_pycache(install_dir)
-            _git_run(["git", "-C", str(install_dir), "checkout", "--", "."],
+    if r.returncode != 0 and _pycache_conflict_in_stderr(r.stderr or ""):
+        info("Cleaning __pycache__ blocking git pull…")
+        _clean_pycache(install_dir)
+        _git_run(["git", "-C", str(install_dir), "checkout", "--", "."],
+                 capture_output=True, text=True, env=git_env)
+        r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                      capture_output=True, text=True, env=git_env)
-            r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                         capture_output=True, text=True, env=git_env)
     return r
 
 
