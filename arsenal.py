@@ -238,17 +238,46 @@ def _pycache_conflict_in_stderr(stderr: str) -> bool:
     return bool(conflict_files) and all("__pycache__" in f for f in conflict_files)
 
 
+def _ensure_filemode_off(install_dir: "str | Path") -> None:
+    """Disable core.fileMode so permission-only diffs never block pulls."""
+    _git_run(["git", "-C", str(install_dir), "config", "core.fileMode", "false"],
+             capture_output=True, text=True)
+
+
+def _is_mode_only_dirty(install_dir: "str | Path", git_env: dict) -> bool:
+    """True when all working-tree changes are permission-only (no content)."""
+    r = _git_run(["git", "-C", str(install_dir), "diff", "--summary"],
+                 capture_output=True, text=True, env=git_env)
+    lines = [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
+    if not lines:
+        return False
+    return all(l.startswith("mode change") for l in lines)
+
+
 def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "subprocess.CompletedProcess":
-    """git pull --ff-only with automatic __pycache__ cleanup on failure."""
+    """git pull --ff-only with automatic cleanup on failure.
+
+    Handles two common cases on managed servers:
+    1. __pycache__ conflicts (gitignored files blocking merge)
+    2. Permission-only changes (core.fileMode=true on Linux)
+    """
+    _ensure_filemode_off(install_dir)
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                  capture_output=True, text=True, env=git_env)
-    if r.returncode != 0 and _pycache_conflict_in_stderr(r.stderr or ""):
-        info("Cleaning __pycache__ blocking git pull…")
-        _clean_pycache(install_dir)
-        _git_run(["git", "-C", str(install_dir), "checkout", "--", "."],
-                 capture_output=True, text=True, env=git_env)
-        r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+    if r.returncode != 0:
+        recovered = False
+        if _pycache_conflict_in_stderr(r.stderr or ""):
+            info("Cleaning __pycache__ blocking git pull...")
+            _clean_pycache(install_dir)
+            recovered = True
+        if _is_mode_only_dirty(install_dir, git_env):
+            info("Resetting permission-only changes blocking git pull...")
+            recovered = True
+        if recovered:
+            _git_run(["git", "-C", str(install_dir), "checkout", "--", "."],
                      capture_output=True, text=True, env=git_env)
+            r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
+                         capture_output=True, text=True, env=git_env)
     return r
 
 
@@ -1661,6 +1690,7 @@ def install_app(app: dict) -> None:
         if r.returncode != 0:
             err(f"Clone failed for {app['name']}.")
             return
+        _ensure_filemode_off(install_dir)
 
     _run_install_py(install_dir)
     _write_plist(app)
@@ -2979,8 +3009,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
         install_dir.parent.mkdir(parents=True, exist_ok=True)
         if install_dir.is_dir():
             info(f"{name} already present — pulling latest…")
-            _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
-                     capture_output=True, text=True, env=_git_e)
+            _git_pull_with_pycache_retry(install_dir, _git_e)
         else:
             info(f"Cloning {app['github_url']}  →  {install_dir}")
             r = _git_run(
@@ -2991,6 +3020,8 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                 err(f"Clone failed for {name}: {r.stderr.strip()[:120]}")
                 _log("git", name, f"clone {app['github_url']}", False,
                      stderr=r.stderr, error="git clone failed")
+                continue
+            _ensure_filemode_off(install_dir)
 
     # Step 2: merge packages from all app installers
     info("Parsing install.py files and merging package lists…")
