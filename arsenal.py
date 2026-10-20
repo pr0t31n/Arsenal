@@ -3874,9 +3874,11 @@ def main() -> None:
                 status[name]["service_status"] = get_service_status(app)
                 status[name]["needs_update"]   = False
             for name in selection.get("to_uninstall", []):
-                status[name]["installed"]      = False
-                status[name]["local_ver"]      = None
-                status[name]["service_status"] = ""
+                app = APP_INDEX[name]
+                still_exists = _install_dir(app).is_dir()
+                status[name]["installed"]      = still_exists
+                status[name]["local_ver"]      = get_local_version(app) if still_exists else None
+                status[name]["service_status"] = get_service_status(app) if still_exists else ""
                 status[name]["needs_update"]   = False
             _flask_restarted = [n for n in selection.get("to_restart", []) if APP_INDEX[n].get("flask")]
             if _flask_restarted:
