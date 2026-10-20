@@ -1911,240 +1911,438 @@ def _curses_menu(
         max_y, max_x = stdscr.getmaxyx()
         safe_x = max_x - 1
 
-        if max_y < 12 or max_x < 60:
-            stdscr.addstr(0, 0, "Terminal too small — resize and retry.")
+        if max_y < 10 or max_x < 28:
+            stdscr.addstr(0, 0, "Terminal too small.")
             stdscr.refresh()
             stdscr.getch()
             return None
 
-        # ── column header ────────────────────────────────────────────────────
-        hdr1 = f"  Arsenal v{VERSION} — Tool Selection"
-        stdscr.addstr(0, 0, hdr1[:safe_x],
-                      curses.color_pair(_CP_HEADER) | curses.A_BOLD)
+        _compact = max_x < 60
 
-        col_hdr = (
-            f"  {'SEL':3}  {'':1}  {'Application':<18}  "
-            f"{'Inst.Ver':<9}  {'Latest':<9}  {'Running':<9}  {'Port':<6}  Description"
-        )
-        stdscr.addstr(1, 0, col_hdr[:safe_x], curses.color_pair(_CP_HEADER))
-
-        sep_line = "  " + "─" * min(max_x - 4, 100)
-        stdscr.addstr(2, 0, sep_line[:safe_x], curses.color_pair(_CP_HEADER))
-
-        # ── visible app rows ─────────────────────────────────────────────────
-        # 3 header rows + 4 footer rows
-        viewport = max_y - 7
-        viewport = max(1, viewport)
-
-        # Adjust scroll so cursor stays visible (for app rows only)
-        if cursor < N:
-            if cursor < scroll:
-                scroll = cursor
-            elif cursor >= scroll + viewport:
-                scroll = cursor - viewport + 1
-        scroll = max(0, min(scroll, max(0, N - viewport)))
-
-        for vi in range(viewport):
-            row_idx  = vi + scroll
-            screen_y = vi + 3
-            if screen_y >= max_y - 4:
-                break
-            if row_idx >= N:
-                break
-
-            _di      = _DISPLAY_ITEMS[row_idx]
-            app      = _di["app"]
-            _indent  = _di["indent"]
-            name     = app["name"]
-            st       = status[name]
-            d        = desired[name]
-            orig     = st["installed"]
-
-            # Checkbox: checked/unchecked only — install state shown separately
-            if d:
-                chk, chk_cp = "[✓]", _CP_CHECKED
-            else:
-                chk, chk_cp = "[ ]", _CP_UNCKD
-
-            # Install status indicator (●=installed, ○=not installed)
-            if orig:
-                inst_marker, inst_cp = "●", _CP_CHECKED
-            else:
-                inst_marker, inst_cp = "○", _CP_UNCKD
-
-            lv_raw = st["local_ver"]   or ""
-            gv_raw = st["github_ver"]  or ""
-            rv_raw = st.get("running_ver", "") or ""
-            lv     = lv_raw or "—"
-            gv     = gv_raw or "?"
-            rv     = rv_raw or ("—" if app["flask"] else "")
-            port   = str(app["port"]) if app["port"] else "—"
-
-            name_col = ("  ↳ " + name) if _indent else name
-            desc_w   = max(0, safe_x - 73)
-            desc     = app.get("short_desc", app["description"])[:desc_w] if desc_w > 0 else ""
-
-            row_text = (
-                f"  {chk}  {inst_marker}  {name_col:<18}  {lv:<9}  {gv:<9}  {rv:<9}  {port:<6}  {desc}"
-            )
-
-            is_on = (row_idx == cursor)
-            row_attr = (curses.color_pair(_CP_HILITE)
-                        if is_on else curses.color_pair(_CP_NORMAL))
-            try:
-                stdscr.addstr(screen_y, 0, row_text[:safe_x], row_attr)
-
-                # Re-paint checkbox with semantic colour
-                chk_attr = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
-                             if is_on
-                             else curses.color_pair(chk_cp) | curses.A_BOLD)
-                stdscr.addstr(screen_y, COL_CHK, chk, chk_attr)
-
-                # Re-paint install status dot
-                inst_attr = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
-                              if is_on
-                              else curses.color_pair(inst_cp) | curses.A_BOLD)
-                stdscr.addstr(screen_y, COL_INST, inst_marker, inst_attr)
-
-                # Re-paint version columns when they differ (skip hilite row)
-                if (not is_on and lv_raw and gv_raw
-                        and lv_raw not in ("unknown",) and gv_raw not in ("?",)):
-                    if _version_gt(gv_raw, lv_raw) and COL_LV < safe_x:
-                        # GitHub newer → installed version is stale → dark red
-                        stdscr.addstr(screen_y, COL_LV,
-                                      f"{lv:<9}"[:safe_x - COL_LV],
-                                      curses.color_pair(_CP_VER_OLD))
-                    elif _version_gt(lv_raw, gv_raw) and COL_GV < safe_x:
-                        # Local newer → latest column is behind → dark red
-                        stdscr.addstr(screen_y, COL_GV,
-                                      f"{gv:<9}"[:safe_x - COL_GV],
-                                      curses.color_pair(_CP_VER_OLD))
-
-                # Re-paint running version column (Flask apps only, skip hilite row)
-                if not is_on and app["flask"] and COL_RV < safe_x:
-                    if rv_raw and lv_raw and rv_raw != lv_raw:
-                        # Running a different version than what's on disk → yellow
-                        stdscr.addstr(screen_y, COL_RV,
-                                      f"{rv:<9}"[:safe_x - COL_RV],
-                                      curses.color_pair(_CP_UPGRADE_BTN))
-                    elif rv_raw and COL_RV < safe_x:
-                        # Running matches installed → green
-                        stdscr.addstr(screen_y, COL_RV,
-                                      f"{rv:<9}"[:safe_x - COL_RV],
-                                      curses.color_pair(_CP_CHECKED))
-            except curses.error:
-                pass
-
-        # ── scrollbar (right edge, app area only) ────────────────────────────
-        if N > viewport:
-            bar_h = viewport
-            thumb_pos = int(scroll / max(1, N - viewport) * (bar_h - 1))
-            for bi in range(bar_h):
-                ch = "█" if bi == thumb_pos else "│"
-                try:
-                    stdscr.addch(3 + bi, safe_x, ch,
-                                 curses.color_pair(_CP_HEADER))
-                except curses.error:
-                    pass
-
-        # ── footer ────────────────────────────────────────────────────────────
-        fy = max_y - 4
-        try:
-            stdscr.addstr(fy, 0, sep_line[:safe_x], curses.color_pair(_CP_HEADER))
-        except curses.error:
-            pass
-
-        # Button availability — all scoped to currently checked tools
+        # ── shared state for keyboard handlers (both modes) ──────────────
         checked_names = [a["name"] for a in APPS if desired[a["name"]]]
-
-        can_install = any(
-            not status[n]["installed"] for n in checked_names
-        )
-        can_uninstall = any(
-            status[n]["installed"] for n in checked_names
-        )
+        can_install = any(not status[n]["installed"] for n in checked_names)
+        can_uninstall = any(status[n]["installed"] for n in checked_names)
         can_upgrade = any(
             status[n]["installed"]
-            and _version_gt(
-                status[n].get("github_ver") or "",
-                status[n].get("local_ver") or "",
-            )
-            for n in checked_names
-        )
+            and _version_gt(status[n].get("github_ver") or "",
+                            status[n].get("local_ver") or "")
+            for n in checked_names)
         can_push = any(
             status[n]["installed"]
-            and _version_gt(
-                status[n].get("local_ver") or "",
-                status[n].get("github_ver") or "",
-            )
-            for n in checked_names
-        )
+            and _version_gt(status[n].get("local_ver") or "",
+                            status[n].get("github_ver") or "")
+            for n in checked_names)
         can_restart = any(
             item["app"]["flask"]
             and status[item["app"]["name"]]["installed"]
             and desired[item["app"]["name"]]
-            for item in _DISPLAY_ITEMS
-        )
+            for item in _DISPLAY_ITEMS)
 
-        install_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_INSTALL
-            else (curses.color_pair(_CP_EXEC_BTN) | curses.A_BOLD) if can_install
-            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
-        )
-        uninstall_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_UNINSTALL
-            else (curses.color_pair(_CP_TO_UNINST) | curses.A_BOLD) if can_uninstall
-            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
-        )
-        upgrade_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_UPGRADE
-            else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_upgrade
-            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
-        )
-        push_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_PUSH
-            else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_push
-            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
-        )
-        restart_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_RESTART
-            else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD) if can_restart
-            else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
-        )
-        refresh_status_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_REFRESH_STATUS
-            else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD)
-        )
-        quit_attr = (
-            (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_QUIT
-            else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD)
-        )
+        # ══════════════════════════════════════════════════════════════════
+        #  COMPACT MODE — mobile-friendly layout for narrow terminals
+        # ══════════════════════════════════════════════════════════════════
+        if _compact:
+            # In compact mode cursor wraps within app rows only — actions
+            # are triggered exclusively via keyboard shortcuts.
+            if cursor >= N:
+                cursor = N - 1
 
-        try:
-            stdscr.addstr(fy + 1, 2,  "[ Install ]",   install_attr)
-            stdscr.addstr(fy + 1, 15, "[ Uninstall ]", uninstall_attr)
-            stdscr.addstr(fy + 1, 30, "[ Upgrade ]",   upgrade_attr)
-            stdscr.addstr(fy + 1, 43, "[ Push ]",      push_attr)
-            stdscr.addstr(fy + 1, 53, "[ Restart ]",   restart_attr)
-            stdscr.addstr(fy + 1, 66, "[ Refresh ]",   refresh_status_attr)
-            stdscr.addstr(fy + 1, 79, "[ Quit ]",      quit_attr)
-        except curses.error:
-            pass
+            sep_c = "─" * min(max_x - 2, 60)
 
-        try:
-            hint = ("  ↑/↓: navigate   SPC: select   "
-                    "i: install   x: uninstall   U: upgrade   p: push   r: restart   f: refresh   q: quit")
-            stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
-        except curses.error:
-            pass
+            # ── header ───────────────────────────────────────────────────
+            _hdr_c = f" Arsenal v{VERSION}"
+            stdscr.addstr(0, 0, _hdr_c[:safe_x],
+                          curses.color_pair(_CP_HEADER) | curses.A_BOLD)
+            try:
+                stdscr.addstr(1, 0, sep_c[:safe_x],
+                              curses.color_pair(_CP_HEADER))
+            except curses.error:
+                pass
 
-        try:
-            req = ("  ●=installed  ○=not installed   "
-                   "Dependencies: Crucible→managed tools  Gauntlet→Gearbox  Polaris→LandNav")
-            stdscr.addstr(fy + 3, 0, req[:safe_x],
-                          curses.color_pair(_CP_UNCKD) | curses.A_DIM)
-        except curses.error:
-            pass
+            # ── app rows ─────────────────────────────────────────────────
+            # Layout: 2 header + viewport + 1 sep + 4 detail + 1 sep + 1 hints
+            _detail_h = min(4, max(2, max_y - 6))
+            _compact_footer = 1 + _detail_h + 1 + 1  # sep+detail+sep+hints
+            viewport = max(1, max_y - 2 - _compact_footer)
+
+            if cursor < scroll:
+                scroll = cursor
+            elif cursor >= scroll + viewport:
+                scroll = cursor - viewport + 1
+            scroll = max(0, min(scroll, max(0, N - viewport)))
+
+            _c_col_chk = 1
+            _c_col_dot = 5
+
+            for vi in range(viewport):
+                row_idx = vi + scroll
+                screen_y = vi + 2
+                if screen_y >= max_y - _compact_footer:
+                    break
+                if row_idx >= N:
+                    break
+
+                _di   = _DISPLAY_ITEMS[row_idx]
+                app   = _di["app"]
+                name  = app["name"]
+                st_c  = status[name]
+                d     = desired[name]
+
+                chk, chk_cp = ("[✓]", _CP_CHECKED) if d else ("[ ]", _CP_UNCKD)
+                inst_m, inst_cp = ("●", _CP_CHECKED) if st_c["installed"] else ("○", _CP_UNCKD)
+                _name_w = max(0, safe_x - 7)
+                _nc = ("↳" + name) if _di["indent"] else name
+                _nc = _nc[:_name_w]
+
+                _row_c = f" {chk} {inst_m} {_nc}"
+                is_on = (row_idx == cursor)
+                _ra = (curses.color_pair(_CP_HILITE)
+                       if is_on else curses.color_pair(_CP_NORMAL))
+                try:
+                    stdscr.addstr(screen_y, 0, _row_c[:safe_x], _ra)
+                    _ca = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
+                           if is_on
+                           else curses.color_pair(chk_cp) | curses.A_BOLD)
+                    stdscr.addstr(screen_y, _c_col_chk, chk, _ca)
+                    _ia = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
+                           if is_on
+                           else curses.color_pair(inst_cp) | curses.A_BOLD)
+                    stdscr.addstr(screen_y, _c_col_dot, inst_m, _ia)
+                except curses.error:
+                    pass
+
+            # ── scrollbar ────────────────────────────────────────────────
+            if N > viewport:
+                _sb_h = viewport
+                _sb_pos = int(scroll / max(1, N - viewport) * (_sb_h - 1))
+                for bi in range(_sb_h):
+                    _sc = "█" if bi == _sb_pos else "│"
+                    try:
+                        stdscr.addch(2 + bi, safe_x, _sc,
+                                     curses.color_pair(_CP_HEADER))
+                    except curses.error:
+                        pass
+
+            # ── detail pane ──────────────────────────────────────────────
+            _dy = max_y - _compact_footer
+            try:
+                stdscr.addstr(_dy, 0, sep_c[:safe_x],
+                              curses.color_pair(_CP_HEADER))
+            except curses.error:
+                pass
+
+            if cursor < N:
+                _da = _DISPLAY_ITEMS[cursor]["app"]
+                _ds = status[_da["name"]]
+                _dlv = _ds["local_ver"] or ""
+                _dgv = _ds["github_ver"] or ""
+                _drv = _ds.get("running_ver", "") or ""
+                _dp = str(_da["port"]) if _da["port"] else "—"
+
+                # Line 1: name + port
+                _d1 = f" {_da['name']}"
+                _d1_port = f":{_dp}"
+                _d1_pad = max(0, safe_x - len(_d1) - len(_d1_port))
+                _d1_full = _d1 + " " * _d1_pad + _d1_port
+                try:
+                    stdscr.addstr(_dy + 1, 0, _d1_full[:safe_x],
+                                  curses.color_pair(_CP_NORMAL) | curses.A_BOLD)
+                except curses.error:
+                    pass
+
+                # Line 2: versions with colour
+                if _detail_h >= 2:
+                    _lv_d = _dlv or "—"
+                    _gv_d = _dgv or "?"
+                    _rv_d = _drv or "—"
+                    _v_line = f" I:{_lv_d}  G:{_gv_d}"
+                    if _da["flask"]:
+                        _v_line += f"  R:{_rv_d}"
+                    try:
+                        stdscr.addstr(_dy + 2, 0, _v_line[:safe_x],
+                                      curses.color_pair(_CP_NORMAL))
+                        # Colour installed version if stale
+                        _lv_x = 3
+                        _gv_x = 3 + len(_lv_d) + 4
+                        if (_dlv and _dgv
+                                and _dlv not in ("unknown",) and _dgv not in ("?",)):
+                            if _version_gt(_dgv, _dlv) and _lv_x < safe_x:
+                                stdscr.addstr(_dy + 2, _lv_x,
+                                              _lv_d[:safe_x - _lv_x],
+                                              curses.color_pair(_CP_VER_OLD))
+                            elif _version_gt(_dlv, _dgv) and _gv_x < safe_x:
+                                stdscr.addstr(_dy + 2, _gv_x,
+                                              _gv_d[:safe_x - _gv_x],
+                                              curses.color_pair(_CP_VER_OLD))
+                        # Colour running version
+                        if _da["flask"] and _drv:
+                            _rv_x = len(_v_line) - len(_rv_d)
+                            if _rv_x > 0 and _rv_x < safe_x:
+                                if _drv != _dlv:
+                                    stdscr.addstr(
+                                        _dy + 2, _rv_x,
+                                        _rv_d[:safe_x - _rv_x],
+                                        curses.color_pair(_CP_UPGRADE_BTN))
+                                else:
+                                    stdscr.addstr(
+                                        _dy + 2, _rv_x,
+                                        _rv_d[:safe_x - _rv_x],
+                                        curses.color_pair(_CP_CHECKED))
+                    except curses.error:
+                        pass
+
+                # Line 3: description
+                if _detail_h >= 3:
+                    _desc_c = _da.get("short_desc", _da["description"])
+                    _desc_c = " " + _desc_c[:safe_x - 1]
+                    try:
+                        stdscr.addstr(_dy + 3, 0, _desc_c[:safe_x],
+                                      curses.color_pair(_CP_UNCKD))
+                    except curses.error:
+                        pass
+
+                # Line 4: available actions
+                if _detail_h >= 4:
+                    _acts = []
+                    if can_install:
+                        _acts.append("i:Inst")
+                    if can_uninstall:
+                        _acts.append("x:Del")
+                    if can_upgrade:
+                        _acts.append("U:Upg")
+                    if can_push:
+                        _acts.append("p:Push")
+                    if _da["flask"] and _ds["installed"]:
+                        _acts.append("r:Rst")
+                    _acts_line = " " + " ".join(_acts) if _acts else " (select tools)"
+                    try:
+                        stdscr.addstr(_dy + 4, 0, _acts_line[:safe_x],
+                                      curses.color_pair(_CP_HEADER))
+                    except curses.error:
+                        pass
+
+            # ── key hints ────────────────────────────────────────────────
+            _hy = max_y - 1
+            try:
+                stdscr.addstr(_hy - 1, 0, sep_c[:safe_x],
+                              curses.color_pair(_CP_HEADER))
+            except curses.error:
+                pass
+            _hints_c = " ↑↓:nav SPC:sel f:ref q:quit"
+            try:
+                stdscr.addstr(_hy, 0, _hints_c[:safe_x],
+                              curses.color_pair(_CP_HEADER))
+            except curses.error:
+                pass
+
+        # ══════════════════════════════════════════════════════════════════
+        #  FULL MODE — standard wide-terminal layout
+        # ══════════════════════════════════════════════════════════════════
+        else:
+            if max_y < 12:
+                stdscr.addstr(0, 0, "Terminal too small — resize and retry.")
+                stdscr.refresh()
+                stdscr.getch()
+                return None
+
+            # ── column header ────────────────────────────────────────────
+            hdr1 = f"  Arsenal v{VERSION} — Tool Selection"
+            stdscr.addstr(0, 0, hdr1[:safe_x],
+                          curses.color_pair(_CP_HEADER) | curses.A_BOLD)
+
+            col_hdr = (
+                f"  {'SEL':3}  {'':1}  {'Application':<18}  "
+                f"{'Inst.Ver':<9}  {'Latest':<9}  {'Running':<9}  {'Port':<6}  Description"
+            )
+            stdscr.addstr(1, 0, col_hdr[:safe_x], curses.color_pair(_CP_HEADER))
+
+            sep_line = "  " + "─" * min(max_x - 4, 100)
+            stdscr.addstr(2, 0, sep_line[:safe_x], curses.color_pair(_CP_HEADER))
+
+            # ── visible app rows ─────────────────────────────────────────
+            # 3 header rows + 4 footer rows
+            viewport = max_y - 7
+            viewport = max(1, viewport)
+
+            # Adjust scroll so cursor stays visible (for app rows only)
+            if cursor < N:
+                if cursor < scroll:
+                    scroll = cursor
+                elif cursor >= scroll + viewport:
+                    scroll = cursor - viewport + 1
+            scroll = max(0, min(scroll, max(0, N - viewport)))
+
+            for vi in range(viewport):
+                row_idx  = vi + scroll
+                screen_y = vi + 3
+                if screen_y >= max_y - 4:
+                    break
+                if row_idx >= N:
+                    break
+
+                _di      = _DISPLAY_ITEMS[row_idx]
+                app      = _di["app"]
+                _indent  = _di["indent"]
+                name     = app["name"]
+                st       = status[name]
+                d        = desired[name]
+                orig     = st["installed"]
+
+                # Checkbox: checked/unchecked only — install state shown separately
+                if d:
+                    chk, chk_cp = "[✓]", _CP_CHECKED
+                else:
+                    chk, chk_cp = "[ ]", _CP_UNCKD
+
+                # Install status indicator (●=installed, ○=not installed)
+                if orig:
+                    inst_marker, inst_cp = "●", _CP_CHECKED
+                else:
+                    inst_marker, inst_cp = "○", _CP_UNCKD
+
+                lv_raw = st["local_ver"]   or ""
+                gv_raw = st["github_ver"]  or ""
+                rv_raw = st.get("running_ver", "") or ""
+                lv     = lv_raw or "—"
+                gv     = gv_raw or "?"
+                rv     = rv_raw or ("—" if app["flask"] else "")
+                port   = str(app["port"]) if app["port"] else "—"
+
+                name_col = ("  ↳ " + name) if _indent else name
+                desc_w   = max(0, safe_x - 73)
+                desc     = app.get("short_desc", app["description"])[:desc_w] if desc_w > 0 else ""
+
+                row_text = (
+                    f"  {chk}  {inst_marker}  {name_col:<18}  {lv:<9}  {gv:<9}  {rv:<9}  {port:<6}  {desc}"
+                )
+
+                is_on = (row_idx == cursor)
+                row_attr = (curses.color_pair(_CP_HILITE)
+                            if is_on else curses.color_pair(_CP_NORMAL))
+                try:
+                    stdscr.addstr(screen_y, 0, row_text[:safe_x], row_attr)
+
+                    # Re-paint checkbox with semantic colour
+                    chk_attr = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
+                                 if is_on
+                                 else curses.color_pair(chk_cp) | curses.A_BOLD)
+                    stdscr.addstr(screen_y, COL_CHK, chk, chk_attr)
+
+                    # Re-paint install status dot
+                    inst_attr = (curses.color_pair(_CP_HILITE) | curses.A_BOLD
+                                  if is_on
+                                  else curses.color_pair(inst_cp) | curses.A_BOLD)
+                    stdscr.addstr(screen_y, COL_INST, inst_marker, inst_attr)
+
+                    # Re-paint version columns when they differ (skip hilite row)
+                    if (not is_on and lv_raw and gv_raw
+                            and lv_raw not in ("unknown",) and gv_raw not in ("?",)):
+                        if _version_gt(gv_raw, lv_raw) and COL_LV < safe_x:
+                            # GitHub newer → installed version is stale → dark red
+                            stdscr.addstr(screen_y, COL_LV,
+                                          f"{lv:<9}"[:safe_x - COL_LV],
+                                          curses.color_pair(_CP_VER_OLD))
+                        elif _version_gt(lv_raw, gv_raw) and COL_GV < safe_x:
+                            # Local newer → latest column is behind → dark red
+                            stdscr.addstr(screen_y, COL_GV,
+                                          f"{gv:<9}"[:safe_x - COL_GV],
+                                          curses.color_pair(_CP_VER_OLD))
+
+                    # Re-paint running version column (Flask apps only, skip hilite row)
+                    if not is_on and app["flask"] and COL_RV < safe_x:
+                        if rv_raw and lv_raw and rv_raw != lv_raw:
+                            # Running a different version than what's on disk → yellow
+                            stdscr.addstr(screen_y, COL_RV,
+                                          f"{rv:<9}"[:safe_x - COL_RV],
+                                          curses.color_pair(_CP_UPGRADE_BTN))
+                        elif rv_raw and COL_RV < safe_x:
+                            # Running matches installed → green
+                            stdscr.addstr(screen_y, COL_RV,
+                                          f"{rv:<9}"[:safe_x - COL_RV],
+                                          curses.color_pair(_CP_CHECKED))
+                except curses.error:
+                    pass
+
+            # ── scrollbar (right edge, app area only) ────────────────────
+            if N > viewport:
+                bar_h = viewport
+                thumb_pos = int(scroll / max(1, N - viewport) * (bar_h - 1))
+                for bi in range(bar_h):
+                    ch = "█" if bi == thumb_pos else "│"
+                    try:
+                        stdscr.addch(3 + bi, safe_x, ch,
+                                     curses.color_pair(_CP_HEADER))
+                    except curses.error:
+                        pass
+
+            # ── footer ───────────────────────────────────────────────────
+            fy = max_y - 4
+            sep_line = "  " + "─" * min(max_x - 4, 100)
+            try:
+                stdscr.addstr(fy, 0, sep_line[:safe_x], curses.color_pair(_CP_HEADER))
+            except curses.error:
+                pass
+
+            install_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_INSTALL
+                else (curses.color_pair(_CP_EXEC_BTN) | curses.A_BOLD) if can_install
+                else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+            )
+            uninstall_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_UNINSTALL
+                else (curses.color_pair(_CP_TO_UNINST) | curses.A_BOLD) if can_uninstall
+                else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+            )
+            upgrade_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_UPGRADE
+                else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_upgrade
+                else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+            )
+            push_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_PUSH
+                else (curses.color_pair(_CP_UPGRADE_BTN) | curses.A_BOLD) if can_push
+                else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+            )
+            restart_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_RESTART
+                else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD) if can_restart
+                else (curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+            )
+            refresh_status_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_REFRESH_STATUS
+                else (curses.color_pair(_CP_REFRESH_BTN) | curses.A_BOLD)
+            )
+            quit_attr = (
+                (curses.color_pair(_CP_HILITE) | curses.A_BOLD) if cursor == ROW_QUIT
+                else (curses.color_pair(_CP_QUIT_BTN) | curses.A_BOLD)
+            )
+
+            try:
+                stdscr.addstr(fy + 1, 2,  "[ Install ]",   install_attr)
+                stdscr.addstr(fy + 1, 15, "[ Uninstall ]", uninstall_attr)
+                stdscr.addstr(fy + 1, 30, "[ Upgrade ]",   upgrade_attr)
+                stdscr.addstr(fy + 1, 43, "[ Push ]",      push_attr)
+                stdscr.addstr(fy + 1, 53, "[ Restart ]",   restart_attr)
+                stdscr.addstr(fy + 1, 66, "[ Refresh ]",   refresh_status_attr)
+                stdscr.addstr(fy + 1, 79, "[ Quit ]",      quit_attr)
+            except curses.error:
+                pass
+
+            try:
+                hint = ("  ↑/↓: navigate   SPC: select   "
+                        "i: install   x: uninstall   U: upgrade   p: push   r: restart   f: refresh   q: quit")
+                stdscr.addstr(fy + 2, 0, hint[:safe_x], curses.color_pair(_CP_HEADER))
+            except curses.error:
+                pass
+
+            try:
+                req = ("  ●=installed  ○=not installed   "
+                       "Dependencies: Crucible→managed tools  Gauntlet→Gearbox  Polaris→LandNav")
+                stdscr.addstr(fy + 3, 0, req[:safe_x],
+                              curses.color_pair(_CP_UNCKD) | curses.A_DIM)
+            except curses.error:
+                pass
 
         stdscr.refresh()
 
@@ -2154,11 +2352,13 @@ def _curses_menu(
         if key == -1:  # timeout — loop repaints screen, covering SSH noise
             continue
 
+        _wrap = N if _compact else TOTAL
+
         if key in (curses.KEY_UP, ord("k")):
-            cursor = (cursor - 1) % TOTAL
+            cursor = (cursor - 1) % _wrap
 
         elif key in (curses.KEY_DOWN, ord("j")):
-            cursor = (cursor + 1) % TOTAL
+            cursor = (cursor + 1) % _wrap
 
         elif key in (ord(" "), curses.KEY_ENTER, ord("\n"), ord("\r")):
             if cursor < N:
