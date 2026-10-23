@@ -3722,14 +3722,14 @@ def _do_push_to_github(status: dict) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Execute selected changes
 # ─────────────────────────────────────────────────────────────────────────────
-def execute_changes(selection: dict, status: dict[str, dict]) -> None:
+def execute_changes(selection: dict, status: dict[str, dict]) -> bool:
     to_install   = selection.get("to_install",   [])
     to_uninstall = selection.get("to_uninstall", [])
     to_restart   = selection.get("to_restart",   [])
 
     if not to_install and not to_uninstall and not to_restart:
         info("No changes selected.")
-        return
+        return False
 
     # Pure restart — skip install/uninstall confirmation
     if to_restart and not to_install and not to_uninstall:
@@ -3740,7 +3740,7 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
             restart_app(APP_INDEX[name])
             print()
         ok("All operations complete.")
-        return
+        return True
 
     to_install, to_uninstall = resolve_dependencies(to_install, to_uninstall, status)
 
@@ -3767,11 +3767,11 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
     except (EOFError, KeyboardInterrupt):
         print()
         info("Aborted.")
-        return
+        return False
 
     if ans != "y":
         info("Aborted.")
-        return
+        return False
 
     print()
 
@@ -3803,6 +3803,7 @@ def execute_changes(selection: dict, status: dict[str, dict]) -> None:
         print()
 
     ok("All operations complete.")
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3865,29 +3866,29 @@ def main() -> None:
             _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
         else:  # execute — install / uninstall / restart
-            execute_changes(selection, status)
-            # Refresh status entries for apps that changed
-            for name in selection.get("to_install", []):
-                app = APP_INDEX[name]
-                status[name]["installed"]      = _install_dir(app).is_dir()
-                status[name]["local_ver"]      = get_local_version(app)
-                status[name]["service_status"] = get_service_status(app)
-                status[name]["needs_update"]   = False
-            for name in selection.get("to_uninstall", []):
-                app = APP_INDEX[name]
-                still_exists = _install_dir(app).is_dir()
-                status[name]["installed"]      = still_exists
-                status[name]["local_ver"]      = get_local_version(app) if still_exists else None
-                status[name]["service_status"] = get_service_status(app) if still_exists else ""
-                status[name]["needs_update"]   = False
-            _flask_restarted = [n for n in selection.get("to_restart", []) if APP_INDEX[n].get("flask")]
-            if _flask_restarted:
-                time.sleep(4)
-            for name in selection.get("to_restart", []):
-                app = APP_INDEX[name]
-                if app.get("flask"):
+            _did_work = execute_changes(selection, status)
+            if _did_work:
+                for name in selection.get("to_install", []):
+                    app = APP_INDEX[name]
+                    status[name]["installed"]      = _install_dir(app).is_dir()
+                    status[name]["local_ver"]      = get_local_version(app)
                     status[name]["service_status"] = get_service_status(app)
-                    status[name]["running_ver"]    = get_running_version(app)
+                    status[name]["needs_update"]   = False
+                for name in selection.get("to_uninstall", []):
+                    app = APP_INDEX[name]
+                    still_exists = _install_dir(app).is_dir()
+                    status[name]["installed"]      = still_exists
+                    status[name]["local_ver"]      = get_local_version(app) if still_exists else None
+                    status[name]["service_status"] = get_service_status(app) if still_exists else ""
+                    status[name]["needs_update"]   = False
+                _flask_restarted = [n for n in selection.get("to_restart", []) if APP_INDEX[n].get("flask")]
+                if _flask_restarted:
+                    time.sleep(4)
+                for name in selection.get("to_restart", []):
+                    app = APP_INDEX[name]
+                    if app.get("flask"):
+                        status[name]["service_status"] = get_service_status(app)
+                        status[name]["running_ver"]    = get_running_version(app)
             _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
 
