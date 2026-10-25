@@ -495,6 +495,18 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
+        "name":        "Beacon",
+        "repo":        "Beacon",
+        "github_url":  "https://github.com/pr0t31n/Beacon.git",
+        "description": "Engagement status server — receives push updates from Crucible instances and presents a read-only dashboard with risk pills, tool status, and 60s auto-refresh.",
+        "short_desc":  "Status Server",
+        "port":        9443,
+        "flask":       True,
+        "main_file":   "beacon.py",
+        "service":     None,
+        "requires":    [],
+    },
+    {
         "name":        "Codex",
         "repo":        "Codex",
         "github_url":  "https://github.com/pr0t31n/Codex.git",
