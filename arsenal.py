@@ -503,7 +503,7 @@ APPS: list[dict] = [
         "port":        9443,
         "flask":       True,
         "main_file":   "beacon.py",
-        "service":     None,
+        "service":     "pr0t31n-beacon",
         "requires":    [],
     },
     {
