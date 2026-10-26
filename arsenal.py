@@ -1705,8 +1705,12 @@ def install_app(app: dict) -> None:
         _ensure_filemode_off(install_dir)
 
     _run_install_py(install_dir)
-    _write_plist(app)
+    plist = _write_plist(app)
     _write_systemd_unit(app)
+    if plist and app.get("service") and SYSTEM == "Darwin":
+        subprocess.run(["launchctl", "load", "-w", str(plist)],
+                       check=False, timeout=10)
+        ok(f"{app['name']} service loaded via launchctl.")
     ok(f"{app['name']} installed.")
     _handle_optional_deps(app, is_update=False)
 
@@ -3325,7 +3329,26 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
         _write_plist(app)
         _write_systemd_unit(app)
 
-    # Step 6: start services for newly installed apps (Linux / systemd only)
+    # Step 6: start services for newly installed apps
+    if os_type == "macos":
+        for name in app_names:
+            if _modes.get(name) == "server":
+                continue
+            svc = APP_INDEX[name].get("service")
+            if not svc:
+                continue
+            label = f"com.pr0t31n.{name.lower()}"
+            plist_path = Path(f"/Library/LaunchDaemons/{label}.plist")
+            if not plist_path.exists():
+                continue
+            info(f"Loading {label}…")
+            rl = subprocess.run(["launchctl", "load", "-w", str(plist_path)],
+                                capture_output=True, text=True, timeout=10)
+            if rl.returncode == 0:
+                ok(f"{label} loaded.")
+            else:
+                warn(f"launchctl load {plist_path} returned {rl.returncode}.")
+
     if shutil.which("systemctl") and os_type not in ("macos", "windows"):
         for name in app_names:
             if _modes.get(name) == "server":
