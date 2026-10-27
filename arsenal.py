@@ -219,6 +219,49 @@ def _clean_pycache(repo_dir: "str | Path") -> bool:
     return removed
 
 
+def _reset_runtime_generated(install_dir: "str | Path", git_env: dict) -> bool:
+    """Reset scaffold/runtime-generated files that dirty the working tree.
+
+    Before pulling, any tool whose .gitignore covers paths that git still
+    tracks (scaffold output, runtime artefacts) needs those paths reset so
+    the pull can land cleanly.  Also removes untracked files that would
+    collide with incoming changes.
+    """
+    d = str(install_dir)
+    dirty = _git_run(["git", "-C", d, "diff", "--name-only"],
+                     capture_output=True, text=True, env=git_env)
+    untracked = _git_run(["git", "-C", d, "ls-files", "--others",
+                          "--exclude-standard"],
+                         capture_output=True, text=True, env=git_env)
+    dirty_files = [f for f in (dirty.stdout or "").splitlines() if f.strip()]
+    untracked_files = [f for f in (untracked.stdout or "").splitlines() if f.strip()]
+    if not dirty_files and not untracked_files:
+        return False
+    ignored = _git_run(["git", "-C", d, "check-ignore", "--stdin"],
+                       input="\n".join(dirty_files) if dirty_files else "",
+                       capture_output=True, text=True, env=git_env)
+    ignored_set = {f.strip() for f in (ignored.stdout or "").splitlines() if f.strip()}
+    if ignored_set:
+        info(f"Resetting {len(ignored_set)} runtime-generated file(s) blocking git pull…")
+        _git_run(["git", "-C", d, "checkout", "--"] + list(ignored_set),
+                 capture_output=True, text=True, env=git_env)
+    if untracked_files:
+        incoming = _git_run(["git", "-C", d, "diff", "--name-only",
+                             "HEAD", "origin/HEAD"],
+                            capture_output=True, text=True, env=git_env)
+        incoming_set = {f.strip() for f in (incoming.stdout or "").splitlines() if f.strip()}
+        collisions = set(untracked_files) & incoming_set
+        if collisions:
+            info(f"Removing {len(collisions)} untracked file(s) colliding with incoming changes…")
+            for fp in collisions:
+                full = Path(d) / fp
+                try:
+                    full.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    return bool(ignored_set) or bool(untracked_files)
+
+
 def _pycache_conflict_in_stderr(stderr: str) -> bool:
     """True when git pull stderr lists only __pycache__ paths as conflicts."""
     if not stderr:
@@ -257,11 +300,17 @@ def _is_mode_only_dirty(install_dir: "str | Path", git_env: dict) -> bool:
 def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "subprocess.CompletedProcess":
     """git pull --ff-only with automatic cleanup on failure.
 
-    Handles two common cases on managed servers:
+    Handles common cases on managed servers:
     1. __pycache__ conflicts (gitignored files blocking merge)
     2. Permission-only changes (core.fileMode=true on Linux)
+    3. Scaffold/runtime-generated files (gitignored but tracked, or
+       untracked collisions with incoming changes)
     """
     _ensure_filemode_off(install_dir)
+    _git_run(["git", "-C", str(install_dir), "fetch", "--quiet"],
+             capture_output=True, text=True, env=git_env)
+    _reset_runtime_generated(install_dir, git_env)
+    _clean_pycache(install_dir)
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                  capture_output=True, text=True, env=git_env)
     if r.returncode != 0:
