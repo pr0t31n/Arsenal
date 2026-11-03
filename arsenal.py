@@ -751,7 +751,7 @@ APPS: list[dict] = [
         "github_url":  "https://github.com/pr0t31n/Nexus.git",
         "description": "Central hub — discovers and monitors all pr0t31n and third-party security tool instances across every network interface in real time.",
         "short_desc":  "Tool Hub & Monitor",
-        "port":        5400,
+        "port":        6000,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-nexus",
