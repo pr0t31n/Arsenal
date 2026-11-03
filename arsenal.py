@@ -463,13 +463,14 @@ APPS: list[dict] = [
         "name":        "Arbiter",
         "repo":        "Arbiter",
         "github_url":  "https://github.com/pr0t31n/Arbiter.git",
-        "description": "Engagement-driven pentest orchestration platform — manages clients, projects, and scope across all pr0t31n tools with unified findings, compliance mapping (12 frameworks), Nessus integration, Burp XML import, and purgatory workflow for discovered remote projects.",
+        "description": "[RETIRED] Replaced by Crucible v2 + Nexus v2. Engagement orchestration now handled by Crucible; fleet dispatch by Nexus.",
         "short_desc":  "Engagement Orchestrator",
         "port":        5000,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-arbiter",
         "requires":    ["Shared"],
+        "retired":     True,
     },
     {
         "name":        "Architect",
@@ -661,25 +662,27 @@ APPS: list[dict] = [
         "name":        "Helm",
         "repo":        "Helm",
         "github_url":  "https://github.com/pr0t31n/Helm.git",
-        "description": "Unified pr0t31n Flask management platform — central orchestration of every adapter, signed export, KEV enrichment, hash-chained timeline, and per-appliance dispatch.",
+        "description": "[RETIRED] Replaced by Nexus v2. Central console, fleet dispatch, and appliance management now handled by Nexus.",
         "short_desc":  "Central Console",
         "port":        10443,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-helm",
         "requires":    ["HelmAgent"],
+        "retired":     True,
     },
     {
         "name":        "HelmAgent",
         "repo":        "HelmAgent",
         "github_url":  "https://github.com/pr0t31n/HelmAgent.git",
-        "description": "Appliance-side mTLS RPC endpoint for Helm — capability probe, streaming exec dispatch, Arsenal proxy, signed self-update. Installed on every testing appliance. Listen port is randomly assigned in the 49152–65535 range at install time (persisted in .port).",
+        "description": "[RETIRED] Replaced by Nexus v2 broker agent. See /opt/pr0t31n/Nexus/nexus_agent/.",
         "short_desc":  "Helm Agent",
         "port":        None,
         "flask":       True,
         "main_file":   "agent.py",
         "service":     "helm-agent",
         "requires":    [],
+        "retired":     True,
     },
     {
         "name":        "Isotope",
@@ -3964,8 +3967,8 @@ def main() -> None:
             _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
 
-# ── Structured CLI (Helm arsenal_bridge integration) ──────────────────
-# Helm uses this mode for unattended installs over agent/SSH dispatch.
+# ── Structured CLI (Nexus arsenal_bridge integration) ──────────────────
+# Nexus uses this mode for unattended installs over agent/SSH dispatch.
 # Mode is entered by passing --json --non-interactive plus a command.
 # Output: a single JSON object on stdout, exit code 0=success non-zero=error.
 def _cli_main() -> int:
