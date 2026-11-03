@@ -463,7 +463,7 @@ APPS: list[dict] = [
         "name":        "Arbiter",
         "repo":        "Arbiter",
         "github_url":  "https://github.com/pr0t31n/Arbiter.git",
-        "description": "[RETIRED] Replaced by Crucible v2 + Nexus v2. Engagement orchestration now handled by Crucible; fleet dispatch by Nexus.",
+        "description": "Engagement-driven pentest orchestration platform — manages clients, projects, and scope across all pr0t31n tools with unified findings, compliance mapping (12 frameworks), Nessus integration, Burp XML import, and purgatory workflow for discovered remote projects.",
         "short_desc":  "Engagement Orchestrator",
         "port":        5000,
         "flask":       True,
@@ -662,7 +662,7 @@ APPS: list[dict] = [
         "name":        "Helm",
         "repo":        "Helm",
         "github_url":  "https://github.com/pr0t31n/Helm.git",
-        "description": "[RETIRED] Replaced by Nexus v2. Central console, fleet dispatch, and appliance management now handled by Nexus.",
+        "description": "Unified pr0t31n Flask management platform — central orchestration of every adapter, signed export, KEV enrichment, hash-chained timeline, and per-appliance dispatch.",
         "short_desc":  "Central Console",
         "port":        10443,
         "flask":       True,
@@ -675,7 +675,7 @@ APPS: list[dict] = [
         "name":        "HelmAgent",
         "repo":        "HelmAgent",
         "github_url":  "https://github.com/pr0t31n/HelmAgent.git",
-        "description": "[RETIRED] Replaced by Nexus v2 broker agent. See /opt/pr0t31n/Nexus/nexus_agent/.",
+        "description": "Appliance-side mTLS RPC endpoint for Helm — capability probe, streaming exec dispatch, Arsenal proxy, signed self-update. Installed on every testing appliance. Listen port is randomly assigned in the 49152–65535 range at install time (persisted in .port).",
         "short_desc":  "Helm Agent",
         "port":        None,
         "flask":       True,
@@ -754,7 +754,7 @@ APPS: list[dict] = [
         "github_url":  "https://github.com/pr0t31n/Nexus.git",
         "description": "Central hub — discovers and monitors all pr0t31n and third-party security tool instances across every network interface in real time.",
         "short_desc":  "Tool Hub & Monitor",
-        "port":        6000,
+        "port":        5400,
         "flask":       True,
         "main_file":   "app.py",
         "service":     "pr0t31n-nexus",
@@ -3967,7 +3967,7 @@ def main() -> None:
             _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
 
-# ── Structured CLI (Nexus arsenal_bridge integration) ──────────────────
+# ── Structured CLI (Nexus arsenal_bridge integration) ─────────────────
 # Nexus uses this mode for unattended installs over agent/SSH dispatch.
 # Mode is entered by passing --json --non-interactive plus a command.
 # Output: a single JSON object on stdout, exit code 0=success non-zero=error.
