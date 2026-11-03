@@ -782,18 +782,6 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Phalanx",
-        "repo":        "Phalanx",
-        "github_url":  "https://github.com/pr0t31n/Phalanx.git",
-        "description": "Multi-protocol network stress and resilience tester — TCP/UDP/ICMP flood, SYN/ACK/FIN/RST variants, DNS amplification, HTTP/S layer-7, and Slowloris.",
-        "short_desc":  "Network Stress",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "app.py",
-        "service":     None,
-        "requires":    [],
-    },
-    {
         "name":        "Pivot",
         "repo":        "Pivot",
         "github_url":  "https://github.com/pr0t31n/Pivot.git",
