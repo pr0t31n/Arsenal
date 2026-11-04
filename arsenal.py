@@ -447,6 +447,7 @@ APPS: list[dict] = [
         "main_file":   "aether.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Aether-B",
@@ -459,6 +460,7 @@ APPS: list[dict] = [
         "main_file":   "aether_b.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Aether-U",
@@ -471,6 +473,7 @@ APPS: list[dict] = [
         "main_file":   "aether_u.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Aether-Z",
@@ -483,6 +486,7 @@ APPS: list[dict] = [
         "main_file":   "aether_z.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Anvil",
@@ -495,6 +499,7 @@ APPS: list[dict] = [
         "main_file":   "anvil.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Arsenal",
@@ -508,6 +513,7 @@ APPS: list[dict] = [
         "main_file":   "arsenal.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Auger",
@@ -520,6 +526,7 @@ APPS: list[dict] = [
         "main_file":   "auger.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "AuthProbe",
@@ -532,6 +539,7 @@ APPS: list[dict] = [
         "main_file":   "authprobe.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Basalt",
@@ -544,6 +552,7 @@ APPS: list[dict] = [
         "main_file":   "basalt.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Bastion",
@@ -555,6 +564,7 @@ APPS: list[dict] = [
         "flask":       False,
         "main_file":   "bastion.py",
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Beacon",
@@ -567,6 +577,7 @@ APPS: list[dict] = [
         "main_file":   "beacon.py",
         "service":     "pr0t31n-beacon",
         "requires":    [],
+        "database":  "SQLite (beacon.db) — engagement status snapshots",
     },
     {
         "name":        "Crucible",
@@ -585,6 +596,7 @@ APPS: list[dict] = [
             "Fracture", "Isotope", "OSift", "Quill",
             "Scattershot3", "Siphon", "Trawler",
         ],
+        "database":  "SQLite (findings.db) — FindingsDB server-side pagination, full-text search",
     },
     {
         "name":        "Dredge",
@@ -597,6 +609,7 @@ APPS: list[dict] = [
         "main_file":   "dredge.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Drift",
@@ -609,18 +622,20 @@ APPS: list[dict] = [
         "main_file":   "drift.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Forge",
         "repo":        "Forge",
         "github_url":  "https://github.com/pr0t31n/Forge.git",
-        "description": "Cloud control-plane auditor: Azure (storage HTTPS-only, Key Vault soft-delete/purge-protection, VM OS disk encryption) and GCP (GCS uniform access, GCE default service account, project-level IAM owner/editor bindings). Read-only via az + gcloud CLIs.",
+        "description": "Cloud control-plane auditor — 154+ checks across 29 AWS services (S3, EC2, IAM, VPC, RDS, Lambda, CloudTrail, KMS, EKS, WAF, and more), plus Azure and GCP. Read-only via aws/az/gcloud CLIs.",
         "short_desc":  "Cloud Audit",
         "port":        None,
         "flask":       False,
         "main_file":   "forge.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Fracture",
@@ -633,6 +648,7 @@ APPS: list[dict] = [
         "main_file":   "fracture.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Gauntlet",
@@ -645,6 +661,7 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-gauntlet",
         "requires":    ["Gearbox", "Shared"],
+        "database":  "SQLite (findings.db) — reads Gearbox FindingsDB",
     },
     {
         "name":        "Gearbox",
@@ -657,6 +674,7 @@ APPS: list[dict] = [
         "main_file":   "gearbox.py",
         "service":     None,
         "requires":    ["Gauntlet", "Shared"],
+        "database":  "SQLite (gearbox.db + findings.db) — device data, findings, FindingsDB",
     },
     {
         "name":        "Isotope",
@@ -669,6 +687,7 @@ APPS: list[dict] = [
         "main_file":   "isotope.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "LandNav",
@@ -684,6 +703,7 @@ APPS: list[dict] = [
         "optional_deps": [
             {"name": "Mole-Client", "prompt": "Install Mole-Client for traffic tunnelling (routes outbound traffic through chisel)?"},
         ],
+        "database":  None,
     },
     {
         "name":        "Mole",
@@ -697,6 +717,7 @@ APPS: list[dict] = [
         "service":     None,
         "requires":    ["Mole-Client", "Mole-Server"],
         "is_group":    True,
+        "database":  None,
     },
     {
         "name":        "Mole-Client",
@@ -709,6 +730,7 @@ APPS: list[dict] = [
         "main_file":   "mole.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Mole-Server",
@@ -721,6 +743,7 @@ APPS: list[dict] = [
         "main_file":   "Mole-Server-Install.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Nexus",
@@ -733,6 +756,7 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-nexus",
         "requires":    [],
+        "database":  "SQLite — fleet topology, encrypted credentials, audit log",
     },
     {
         "name":        "OSift",
@@ -745,6 +769,7 @@ APPS: list[dict] = [
         "main_file":   "osift.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "pAIn",
@@ -757,6 +782,7 @@ APPS: list[dict] = [
         "main_file":   "pain.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Pivot",
@@ -769,6 +795,7 @@ APPS: list[dict] = [
         "main_file":   "pivot/agent/main.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Polaris",
@@ -781,18 +808,20 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-polaris",
         "requires":    ["LandNav"],
+        "database":  None,
     },
     {
         "name":        "Quill",
         "repo":        "Quill",
         "github_url":  "https://github.com/pr0t31n/Quill.git",
-        "description": "iOS IPA static analyser: Info.plist ATS / URL scheme audit, entitlements analysis (get-task-allow, wildcard appid), hard-coded secret scan (AWS / GCP / Slack / private keys).",
-        "short_desc":  "iOS Static",
+        "description": "Mobile application security platform — static analysis (iOS IPA + Android APK), dynamic analysis (MITM traffic capture + Frida instrumentation), secret scanning, and API endpoint discovery with auto-queue handoff to Fracture/Siphon.",
+        "short_desc":  "Mobile Security",
         "port":        None,
         "flask":       False,
         "main_file":   "quill.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Quiver",
@@ -805,6 +834,7 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-quiver",
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Scattershot3",
@@ -817,6 +847,7 @@ APPS: list[dict] = [
         "main_file":   "scattershot3.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Shared",
@@ -829,6 +860,7 @@ APPS: list[dict] = [
         "main_file":   "pr0t31n_schema.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
     {
         "name":        "Siphon",
@@ -841,6 +873,7 @@ APPS: list[dict] = [
         "main_file":   "siphon.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Trawler",
@@ -853,6 +886,7 @@ APPS: list[dict] = [
         "main_file":   "trawler.py",
         "service":     None,
         "requires":    [],
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Vault",
@@ -865,6 +899,7 @@ APPS: list[dict] = [
         "main_file":   "vault.py",
         "service":     None,
         "requires":    [],
+        "database":  None,
     },
 ]
 
