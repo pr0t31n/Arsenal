@@ -327,6 +327,28 @@ def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "s
                      capture_output=True, text=True, env=git_env)
             r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                          capture_output=True, text=True, env=git_env)
+        if r.returncode != 0:
+            dirty = _git_run(
+                ["git", "-C", str(install_dir), "status", "--porcelain"],
+                capture_output=True, text=True, env=git_env,
+            )
+            if not (dirty.stdout or "").strip():
+                info("Local branch diverged — resetting to origin…")
+                branch = _git_run(
+                    ["git", "-C", str(install_dir), "rev-parse",
+                     "--abbrev-ref", "HEAD"],
+                    capture_output=True, text=True, env=git_env,
+                )
+                br = (branch.stdout or "").strip() or "main"
+                _git_run(
+                    ["git", "-C", str(install_dir), "reset", "--hard",
+                     f"origin/{br}"],
+                    capture_output=True, text=True, env=git_env,
+                )
+                r = _git_run(
+                    ["git", "-C", str(install_dir), "pull", "--ff-only"],
+                    capture_output=True, text=True, env=git_env,
+                )
     return r
 
 
