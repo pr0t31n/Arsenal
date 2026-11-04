@@ -1070,53 +1070,45 @@ def _check_github_connection() -> None:
 
 
 def get_github_version(app: dict) -> Optional[str]:
-    """Read the VERSION file from the GitHub repo contents API."""
-    repo = app["repo"]
-    hdrs = _gh_api_headers()
+    """Read the VERSION file from GitHub.
 
-    # Primary: read VERSION file directly from the default branch
-    try:
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION",
-            headers=hdrs,
-        )
-        with urllib.request.urlopen(req, timeout=6) as r:
-            data = json.loads(r.read())
-            content = data.get("content", "")
-            encoding = data.get("encoding", "base64")
-            if content and encoding == "base64":
-                ver = base64.b64decode(content).decode("utf-8", errors="replace").strip()
+    When the user provided --token, use the authenticated contents API.
+    Otherwise, use raw.githubusercontent.com which needs no auth.
+    """
+    repo = app["repo"]
+    token = _GH_CREDS.get("token", "")
+
+    if token:
+        # User explicitly provided auth — use the API
+        try:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION",
+                headers=_gh_api_headers(),
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                data = json.loads(r.read())
+                content = data.get("content", "")
+                if content and data.get("encoding") == "base64":
+                    ver = base64.b64decode(content).decode("utf-8", errors="replace").strip()
+                    if ver:
+                        return ver
+        except Exception:
+            pass
+        return None
+
+    # No auth — use raw.githubusercontent.com (no rate limit for public repos)
+    for branch in ("main", "master"):
+        try:
+            req = urllib.request.Request(
+                f"https://raw.githubusercontent.com/pr0t31n/{repo}/{branch}/VERSION",
+                headers={"User-Agent": f"Arsenal/{VERSION}"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                ver = r.read().decode("utf-8", errors="replace").strip()
                 if ver:
                     return ver
-    except Exception:
-        pass
-
-    # Fallback: latest release tag
-    try:
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/pr0t31n/{repo}/releases/latest",
-            headers=hdrs,
-        )
-        with urllib.request.urlopen(req, timeout=6) as r:
-            data = json.loads(r.read())
-            tag = data.get("tag_name", "")
-            if tag:
-                return tag.lstrip("v")
-    except Exception:
-        pass
-
-    # Fallback: most recent tag
-    try:
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/pr0t31n/{repo}/tags",
-            headers=hdrs,
-        )
-        with urllib.request.urlopen(req, timeout=6) as r:
-            tags = json.loads(r.read())
-            if tags:
-                return tags[0]["name"].lstrip("v")
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     return None
 
