@@ -320,10 +320,13 @@ def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "s
     2. Permission-only changes (core.fileMode=true on Linux)
     3. Scaffold/runtime-generated files (gitignored but tracked, or
        untracked collisions with incoming changes)
+    4. Diverged history (force-pushed remote, email scrub, etc.)
     """
     _ensure_filemode_off(install_dir)
-    _git_run(["git", "-C", str(install_dir), "fetch", "--quiet"],
-             capture_output=True, text=True, env=git_env)
+    fetch_r = _git_run(["git", "-C", str(install_dir), "fetch", "--quiet"],
+                       capture_output=True, text=True, env=git_env)
+    if fetch_r.returncode != 0:
+        warn(f"git fetch failed for {Path(install_dir).name}: {(fetch_r.stderr or '').strip()[:120]}")
     _reset_runtime_generated(install_dir, git_env)
     _clean_pycache(install_dir)
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
@@ -342,28 +345,24 @@ def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "s
                      capture_output=True, text=True, env=git_env)
             r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
                          capture_output=True, text=True, env=git_env)
-        if r.returncode != 0:
-            dirty = _git_run(
-                ["git", "-C", str(install_dir), "status", "--porcelain"],
+        if r.returncode != 0 and fetch_r.returncode == 0:
+            info(f"Local branch diverged — resetting to origin ({Path(install_dir).name})…")
+            branch = _git_run(
+                ["git", "-C", str(install_dir), "rev-parse",
+                 "--abbrev-ref", "HEAD"],
                 capture_output=True, text=True, env=git_env,
             )
-            if not (dirty.stdout or "").strip():
-                info("Local branch diverged — resetting to origin…")
-                branch = _git_run(
-                    ["git", "-C", str(install_dir), "rev-parse",
-                     "--abbrev-ref", "HEAD"],
-                    capture_output=True, text=True, env=git_env,
-                )
-                br = (branch.stdout or "").strip() or "main"
-                _git_run(
-                    ["git", "-C", str(install_dir), "reset", "--hard",
-                     f"origin/{br}"],
-                    capture_output=True, text=True, env=git_env,
-                )
-                r = _git_run(
-                    ["git", "-C", str(install_dir), "pull", "--ff-only"],
-                    capture_output=True, text=True, env=git_env,
-                )
+            br = (branch.stdout or "").strip() or "main"
+            _git_run(
+                ["git", "-C", str(install_dir), "reset", "--hard",
+                 f"origin/{br}"],
+                capture_output=True, text=True, env=git_env,
+            )
+            _clean_pycache(install_dir)
+            r = _git_run(
+                ["git", "-C", str(install_dir), "pull", "--ff-only"],
+                capture_output=True, text=True, env=git_env,
+            )
     return r
 
 
