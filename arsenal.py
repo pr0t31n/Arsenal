@@ -131,6 +131,21 @@ def _ensure_gh_creds() -> None:
     _ASKPASS_PATH[0] = None
 
 
+def _parse_token_flag() -> None:
+    """Check sys.argv for --token <PAT> and populate _GH_CREDS if present."""
+    for i, arg in enumerate(sys.argv):
+        if arg == "--token" and i + 1 < len(sys.argv):
+            _GH_CREDS["user"] = "token"
+            _GH_CREDS["token"] = sys.argv[i + 1]
+            _ASKPASS_PATH[0] = None
+            return
+        if arg.startswith("--token="):
+            _GH_CREDS["user"] = "token"
+            _GH_CREDS["token"] = arg.split("=", 1)[1]
+            _ASKPASS_PATH[0] = None
+            return
+
+
 def _create_askpass() -> Optional[str]:
     """Write a GIT_ASKPASS helper to /tmp (once) and return its path."""
     token = _GH_CREDS.get("token", "")
@@ -482,18 +497,6 @@ APPS: list[dict] = [
         "requires":    [],
     },
     {
-        "name":        "Architect",
-        "repo":        "Architect",
-        "github_url":  "https://github.com/pr0t31n/Architect.git",
-        "description": "Multi-network fleet-management plane (Tier 0): mTLS FastAPI ingestion service writing to a parallel appliance_management_v2 DB, four pull-mode liveness adapters (MeshCentral/ZeroTier/OpenVPN), step-ca + Caddy ingress, and the prod->v2 operator-column sync. Non-disruptive migration of ApplianceMonitor.",
-        "short_desc":  "Fleet mgmt / ingestion",
-        "port":        8081,
-        "flask":       False,
-        "main_file":   "ingestion/app.py",
-        "service":     "architect-ingestion",
-        "requires":    [],
-    },
-    {
         "name":        "Arsenal",
         "repo":        "Arsenal",
         "install_path": str(Path(__file__).resolve().parent),
@@ -564,18 +567,6 @@ APPS: list[dict] = [
         "main_file":   "beacon.py",
         "service":     "pr0t31n-beacon",
         "requires":    [],
-    },
-    {
-        "name":        "Codex",
-        "repo":        "Codex",
-        "github_url":  "https://github.com/pr0t31n/Codex.git",
-        "description": "Public-facing knowledge base & wiki for the pr0t31n toolkit (wiki.pr0t31n.com). Auto-scaffolds per-tool documentation, findings catalogues, third-party credits, and integration maps from the Arsenal registry. TLS 1.3, rate limiting. Read-only, no authentication.",
-        "short_desc":  "Wiki / KB",
-        "port":        8443,
-        "flask":       True,
-        "main_file":   "app.py",
-        "service":     None,
-        "requires":    ["Arsenal"],
     },
     {
         "name":        "Crucible",
@@ -790,19 +781,6 @@ APPS: list[dict] = [
         "main_file":   "app.py",
         "service":     "pr0t31n-polaris",
         "requires":    ["LandNav"],
-    },
-    {
-        "name":         "Prometheus",
-        "repo":         "Prometheus",
-        "install_path": "/Users/pr0t31n/Prometheus",
-        "github_url":   "https://github.com/pr0t31n/Prometheus.git",
-        "description": "Unified pentest report engine — ingests findings from Fracture, Siphon, Scattershot3, Gearbox, Bastion, OSift, and Aether to produce correlated Excel and HTML reports.",
-        "short_desc":  "Report Engine",
-        "port":        None,
-        "flask":       False,
-        "main_file":   "prometheus.py",
-        "service":     None,
-        "requires":    [],
     },
     {
         "name":        "Quill",
@@ -1025,10 +1003,9 @@ def _check_github_connection() -> None:
 
     ok("github.com reachable")
 
-    # 2 — Credential check (only if a token was entered)
+    # 2 — Credential check (only when --token was supplied)
     token = _GH_CREDS.get("token", "")
     if not token:
-        warn("No GitHub credentials entered — private repo versions will show '?'")
         return
 
     tok_len = len(token)
@@ -1671,7 +1648,6 @@ def _ensure_shared_current() -> None:
             info("Shared modules updated.")
     elif not shared_dir.is_dir():
         info("Installing shared modules (dependency)…")
-        _ensure_gh_creds()
         shared_dir.parent.mkdir(parents=True, exist_ok=True)
         r = _git_run([
             "git", "clone", "--depth=1", _authed_url(shared["github_url"]),
@@ -1707,7 +1683,6 @@ def _handle_optional_deps(app: dict, is_update: bool = False) -> None:
 
 def install_app(app: dict) -> None:
     """Clone repo into INSTALL_BASE (or app install_path) and run install.py."""
-    _ensure_gh_creds()
     if app["name"] not in ("Arsenal", "Shared"):
         _ensure_shared_current()
     install_dir = _install_dir(app)
@@ -3237,8 +3212,6 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
     os_type = detect_os()
     info(f"Detected OS: {os_type}")
 
-    # Step 0: ensure GitHub credentials are cached before any git operation
-    _ensure_gh_creds()
     _git_e = _git_env()
 
     # Step 1: clone / pull all repos first
@@ -3875,10 +3848,10 @@ def main() -> None:
     print(f"{_BLD}  Tool installer and manager  ·  Arsenal v{VERSION}{_R}")
     print(f"  Platform: {SYSTEM}   Install base: {INSTALL_BASE}\n")
 
-    # Prompt for GitHub credentials once for the entire session
-    _ensure_gh_creds()
+    # Optional --token flag for authenticated GitHub access (public repos don't need it)
+    _parse_token_flag()
 
-    # Verify GitHub reachability and credential validity before loading versions
+    # Verify GitHub reachability
     _check_github_connection()
 
     # Initial status load
@@ -3960,6 +3933,8 @@ def _cli_main() -> int:
     p.add_argument("--json", action="store_true", help="emit JSON on stdout")
     p.add_argument("--non-interactive", action="store_true",
                    help="never prompt; required for unattended mode")
+    p.add_argument("--token", default=None,
+                   help="GitHub PAT for authenticated API access (optional)")
     sub = p.add_subparsers(dest="command")
     sub.add_parser("status", help="dump current install status table")
     p_install = sub.add_parser("install", help="install a tool")
@@ -3971,6 +3946,9 @@ def _cli_main() -> int:
     p_check   = sub.add_parser("check-updates",
                                help="report whether each tool needs an update")
     args = p.parse_args()
+    if args.token:
+        _GH_CREDS["user"] = "token"
+        _GH_CREDS["token"] = args.token
     if not (args.json and args.non_interactive and args.command):
         return -1   # signal: fall through to interactive
     out: dict = {"command": args.command, "arsenal_version": VERSION}
