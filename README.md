@@ -79,6 +79,47 @@ sudo python3 arsenal.py
 
 ---
 
+## CLI Reference
+
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit JSON on stdout instead of curses TUI |
+| `--non-interactive` | Never prompt; required for unattended/scripted mode |
+| `--token TOKEN` | GitHub PAT for authenticated API access (raises rate limit from 60 to 5,000 req/hr) |
+
+### Subcommands
+
+| Subcommand | Flag | Description |
+|------------|------|-------------|
+| `status` | — | Dump current install status table for all tools |
+| `install` | `--tool NAME` (required) | Install a single tool by name |
+| `uninstall` | `--tool NAME` (required) | Uninstall a single tool by name |
+| `upgrade` | `--tool NAME` (required) | Upgrade a single tool to the latest release |
+| `check-updates` | — | Report whether each tool needs an update |
+
+### Examples
+
+```bash
+# Interactive TUI (default)
+sudo python3 arsenal.py
+
+# JSON status dump (scripted)
+sudo python3 arsenal.py --json status
+
+# Install a specific tool non-interactively
+sudo python3 arsenal.py --non-interactive install --tool Scattershot3
+
+# Upgrade with authenticated GitHub API
+sudo python3 arsenal.py --token ghp_xxxx upgrade --tool Fracture
+
+# Check for updates across all tools
+sudo python3 arsenal.py --json check-updates
+```
+
+---
+
 ## Managed Tools
 
 | Tool | Port | Service | Requires | Description |
