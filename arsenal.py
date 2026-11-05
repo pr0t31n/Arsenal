@@ -592,7 +592,7 @@ APPS: list[dict] = [
         "managed":     [
             "Aether", "Aether-B", "Aether-U", "Aether-Z",
             "Auger", "AuthProbe", "Bastion", "Dredge", "Forge",
-            "Fracture", "Isotope", "OSift", "Quill",
+            "Fracture", "Isotope", "OSift", "pAIn", "Quill",
             "Scattershot3", "Siphon", "Trawler",
         ],
         "database":  "SQLite (findings.db) — FindingsDB server-side pagination, full-text search",
@@ -781,7 +781,7 @@ APPS: list[dict] = [
         "main_file":   "pain.py",
         "service":     None,
         "requires":    [],
-        "database":  None,
+        "database":  "SQLite (findings.db) — FindingsDB dual-write",
     },
     {
         "name":        "Pivot",
