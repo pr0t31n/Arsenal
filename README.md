@@ -6,6 +6,9 @@ Launches with a block ASCII banner, queries GitHub for the latest release of eve
 
 ---
 
+
+> **[View full documentation on the Codex Wiki](https://wiki.pr0t31n.com/tools/arsenal)** — detailed features, CLI reference, findings catalogue, and integration guides.
+
 ## Features
 
 - **Live status dashboard** — shows each app's installed version, latest GitHub version, LAN port, and service state (systemd / launchd) before any interaction
