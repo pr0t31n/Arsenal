@@ -2795,6 +2795,25 @@ def _brew_cmd(brew: str, *args: str) -> "list | None":
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase runners
 # ─────────────────────────────────────────────────────────────────────────────
+def _apt_lists_fresh(max_age_days=30):
+    """Return True if apt package lists were updated within max_age_days."""
+    import time
+    apt_lists = Path("/var/lib/apt/lists/")
+    if not apt_lists.is_dir():
+        return False
+    try:
+        mtime = max(
+            (f.stat().st_mtime for f in apt_lists.iterdir()
+             if f.is_file() and not f.name.startswith(".")),
+            default=0)
+    except OSError:
+        return False
+    if mtime == 0:
+        return False
+    age_days = (time.time() - mtime) / 86400
+    return age_days < max_age_days
+
+
 def _phase_system(merged: dict, os_type: str) -> None:
     """Install system packages via apt / dnf / zypper (Linux) or brew (macOS)."""
     if os_type == "windows":
@@ -2867,24 +2886,6 @@ def _phase_system(merged: dict, os_type: str) -> None:
     env = os.environ.copy()
     env["DEBIAN_FRONTEND"] = "noninteractive"
 
-
-def _apt_lists_fresh(max_age_days=30):
-    """Return True if apt package lists were updated within max_age_days."""
-    import time
-    apt_lists = Path("/var/lib/apt/lists/")
-    if not apt_lists.is_dir():
-        return False
-    try:
-        mtime = max(
-            (f.stat().st_mtime for f in apt_lists.iterdir()
-             if f.is_file() and not f.name.startswith(".")),
-            default=0)
-    except OSError:
-        return False
-    if mtime == 0:
-        return False
-    age_days = (time.time() - mtime) / 86400
-    return age_days < max_age_days
     # apt update + upgrade — once, before any package installs
     if "apt" in pm:
         if _apt_lists_fresh(30):
