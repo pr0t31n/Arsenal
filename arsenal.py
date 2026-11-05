@@ -1473,6 +1473,7 @@ def load_status() -> dict[str, dict]:
             and local_ver
             and github_ver
             and local_ver not in ("unknown", github_ver)
+            and _version_gt(github_ver, local_ver)
         )
         svc_status  = (get_service_status(app)
                        if installed and app["flask"] else "")
@@ -3140,12 +3141,105 @@ def _phase_pip(merged: dict) -> None:
         info(f"pip: {skipped} package(s) already satisfied — skipped")
 
 
+_MIN_GO = (1, 22)
+
+
+def _go_version(go_bin: str) -> tuple:
+    """Parse Go version from 'go version' output → (major, minor, patch)."""
+    try:
+        r = subprocess.run([go_bin, "version"], capture_output=True, text=True, timeout=10)
+        m = re.search(r'go(\d+)\.(\d+)(?:\.(\d+))?', r.stdout)
+        if m:
+            return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+    except Exception:
+        pass
+    return (0, 0, 0)
+
+
+def _ensure_modern_go(go_bin: str) -> str:
+    """If installed Go is below _MIN_GO, download the latest from go.dev.
+
+    Returns the path to a usable go binary (upgraded or original).
+    """
+    ver = _go_version(go_bin)
+    if ver[:2] >= _MIN_GO:
+        ok(f"Go {ver[0]}.{ver[1]}.{ver[2]} is recent enough.")
+        return go_bin
+
+    warn(f"Go {ver[0]}.{ver[1]}.{ver[2]} is too old "
+         f"(need {_MIN_GO[0]}.{_MIN_GO[1]}+) — upgrading from go.dev …")
+
+    arch = platform.machine()
+    arch_map = {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "armv6l",
+                "arm64": "arm64", "i686": "386", "i386": "386"}
+    go_arch = arch_map.get(arch, "amd64")
+    go_os = "darwin" if sys.platform == "darwin" else "linux"
+
+    latest = None
+    try:
+        req = urllib.request.Request(
+            "https://go.dev/dl/?mode=json",
+            headers={"User-Agent": f"Arsenal/{VERSION}"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            releases = json.loads(r.read())
+        for rel in releases:
+            if rel.get("stable"):
+                latest = rel["version"]
+                break
+    except Exception as exc:
+        warn(f"Could not query go.dev for latest version: {exc}")
+
+    if not latest:
+        warn("Cannot determine latest Go version — keeping old Go.")
+        return go_bin
+
+    tarball = f"{latest}.{go_os}-{go_arch}.tar.gz"
+    url = f"https://go.dev/dl/{tarball}"
+    dest = f"/tmp/{tarball}"
+
+    info(f"Downloading {url} …")
+    try:
+        urllib.request.urlretrieve(url, dest)
+    except Exception as exc:
+        warn(f"Go download failed: {exc}")
+        return go_bin
+
+    info(f"Installing {latest} to /usr/local/go …")
+    try:
+        old_go = Path("/usr/local/go")
+        if old_go.is_dir():
+            shutil.rmtree(old_go)
+        subprocess.run(["tar", "-C", "/usr/local", "-xzf", dest],
+                       check=True, timeout=120)
+        Path(dest).unlink(missing_ok=True)
+    except Exception as exc:
+        warn(f"Go tarball extraction failed: {exc}")
+        return go_bin
+
+    new_go = "/usr/local/go/bin/go"
+    if not Path(new_go).is_file():
+        warn("Go binary not found after install — keeping old Go.")
+        return go_bin
+
+    for binary in ("go", "gofmt"):
+        link = Path(f"/usr/local/bin/{binary}")
+        target = Path(f"/usr/local/go/bin/{binary}")
+        if target.is_file():
+            link.unlink(missing_ok=True)
+            link.symlink_to(target)
+
+    nv = _go_version(new_go)
+    ok(f"Go upgraded to {nv[0]}.{nv[1]}.{nv[2]}")
+    return new_go
+
+
 def _phase_go(merged: dict) -> None:
     go = shutil.which("go")
     if not go:
         warn("go not found — skipping Go phase.")
         warn("  Install Go: https://go.dev/dl/")
         return
+    go = _ensure_modern_go(go)
     env = os.environ.copy()
     if os.geteuid() == 0:
         env["HOME"]   = "/root"
@@ -3582,7 +3676,8 @@ def _do_check_updates(status: dict) -> None:
         st = status[name]
         st["github_ver"] = gv
         lv = st.get("local_ver")
-        st["needs_update"] = bool(lv and gv and lv not in ("unknown", gv))
+        st["needs_update"] = bool(lv and gv and lv not in ("unknown", gv)
+                                    and _version_gt(gv, lv))
 
     outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
     if not outdated:
