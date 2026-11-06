@@ -1074,16 +1074,19 @@ def get_github_version(app: dict) -> Optional[str]:
 
     When the user provided --token, use the authenticated contents API.
     Otherwise, use raw.githubusercontent.com which needs no auth.
+    A timestamp query parameter busts GitHub's CDN cache (up to 5 min).
     """
     repo = app["repo"]
     token = _GH_CREDS.get("token", "")
+    _cb = int(time.time())
 
     if token:
-        # User explicitly provided auth — use the API
         try:
+            hdrs = _gh_api_headers()
+            hdrs["If-None-Match"] = ""
             req = urllib.request.Request(
-                f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION",
-                headers=_gh_api_headers(),
+                f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION?t={_cb}",
+                headers=hdrs,
             )
             with urllib.request.urlopen(req, timeout=6) as r:
                 data = json.loads(r.read())
@@ -1096,12 +1099,12 @@ def get_github_version(app: dict) -> Optional[str]:
             pass
         return None
 
-    # No auth — use raw.githubusercontent.com (no rate limit for public repos)
     for branch in ("main", "master"):
         try:
             req = urllib.request.Request(
-                f"https://raw.githubusercontent.com/pr0t31n/{repo}/{branch}/VERSION",
-                headers={"User-Agent": f"Arsenal/{VERSION}"},
+                f"https://raw.githubusercontent.com/pr0t31n/{repo}/{branch}/VERSION?t={_cb}",
+                headers={"User-Agent": f"Arsenal/{VERSION}",
+                         "Cache-Control": "no-cache"},
             )
             with urllib.request.urlopen(req, timeout=6) as r:
                 ver = r.read().decode("utf-8", errors="replace").strip()
