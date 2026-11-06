@@ -323,10 +323,18 @@ def _git_pull_with_pycache_retry(install_dir: "str | Path", git_env: dict) -> "s
     4. Diverged history (force-pushed remote, email scrub, etc.)
     """
     _ensure_filemode_off(install_dir)
-    fetch_r = _git_run(["git", "-C", str(install_dir), "fetch", "--quiet"],
-                       capture_output=True, text=True, env=git_env)
+    is_shallow = (Path(install_dir) / ".git" / "shallow").exists()
+    fetch_cmd = ["git", "-C", str(install_dir), "fetch", "--force", "--prune"]
+    if is_shallow:
+        fetch_cmd.append("--update-shallow")
+    fetch_r = _git_run(fetch_cmd, capture_output=True, text=True, env=git_env)
     if fetch_r.returncode != 0:
-        warn(f"git fetch failed for {Path(install_dir).name}: {(fetch_r.stderr or '').strip()[:120]}")
+        if is_shallow:
+            info(f"Shallow fetch failed for {Path(install_dir).name} — unshallowing…")
+            _git_run(["git", "-C", str(install_dir), "fetch", "--unshallow"],
+                     capture_output=True, text=True, env=git_env)
+        else:
+            warn(f"git fetch failed for {Path(install_dir).name}: {(fetch_r.stderr or '').strip()[:120]}")
     _reset_runtime_generated(install_dir, git_env)
     _clean_pycache(install_dir)
     r = _git_run(["git", "-C", str(install_dir), "pull", "--ff-only"],
@@ -1072,23 +1080,30 @@ def _check_github_connection() -> None:
 def get_github_version(app: dict) -> Optional[str]:
     """Read the VERSION file from GitHub.
 
-    When the user provided --token, use the authenticated contents API.
-    Otherwise, use raw.githubusercontent.com which needs no auth.
-    A timestamp query parameter busts GitHub's CDN cache (up to 5 min).
+    Strategy (in order):
+      1. Contents API (api.github.com) — no CDN cache, works with or without
+         a token (unauthenticated gets 60 req/hr which is enough for status).
+      2. raw.githubusercontent.com — CDN-cached up to 5 min; used as fallback
+         only when the API is unreachable or rate-limited.
     """
     repo = app["repo"]
     token = _GH_CREDS.get("token", "")
-    _cb = int(time.time())
+    _cb = str(int(time.time() * 1000))
 
-    if token:
+    for branch in ("main", "master"):
         try:
-            hdrs = _gh_api_headers()
-            hdrs["If-None-Match"] = ""
+            hdrs = _gh_api_headers() if token else {
+                "User-Agent": f"Arsenal/{VERSION}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+            hdrs["Cache-Control"] = "no-cache, no-store"
+            hdrs["Pragma"] = "no-cache"
+            hdrs.pop("If-None-Match", None)
             req = urllib.request.Request(
-                f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION?t={_cb}",
+                f"https://api.github.com/repos/pr0t31n/{repo}/contents/VERSION?ref={branch}&_={_cb}",
                 headers=hdrs,
             )
-            with urllib.request.urlopen(req, timeout=6) as r:
+            with urllib.request.urlopen(req, timeout=8) as r:
                 data = json.loads(r.read())
                 content = data.get("content", "")
                 if content and data.get("encoding") == "base64":
@@ -1097,14 +1112,14 @@ def get_github_version(app: dict) -> Optional[str]:
                         return ver
         except Exception:
             pass
-        return None
 
     for branch in ("main", "master"):
         try:
             req = urllib.request.Request(
-                f"https://raw.githubusercontent.com/pr0t31n/{repo}/{branch}/VERSION?t={_cb}",
+                f"https://raw.githubusercontent.com/pr0t31n/{repo}/{branch}/VERSION?_={_cb}",
                 headers={"User-Agent": f"Arsenal/{VERSION}",
-                         "Cache-Control": "no-cache"},
+                         "Cache-Control": "no-cache, no-store",
+                         "Pragma": "no-cache"},
             )
             with urllib.request.urlopen(req, timeout=6) as r:
                 ver = r.read().decode("utf-8", errors="replace").strip()
