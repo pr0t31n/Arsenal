@@ -3613,8 +3613,49 @@ def _pip_spec_satisfied(spec: str, installed: dict) -> bool:
     return True
 
 
+def _fix_apt_pip_conflicts() -> None:
+    """Fix apt-installed Python packages whose RECORD file is missing.
+
+    Debian/Ubuntu/Kali install packages like certifi via apt (python3-certifi)
+    which creates .dist-info directories without a RECORD file. pip's dependency
+    resolver later refuses to install packages that depend on them because it
+    can't verify the installation. Force-reinstalling via pip creates the
+    missing RECORD and unblocks downstream installs.
+    """
+    _APT_CONFLICT_PKGS = ["certifi", "urllib3", "requests", "charset-normalizer", "idna"]
+    try:
+        from importlib.metadata import distributions
+        dist_map = {}
+        for d in distributions():
+            name = d.metadata.get("Name")
+            if name:
+                dist_map[name.lower().replace("-", "_")] = d
+    except Exception:
+        return
+    fixed = []
+    for pkg in _APT_CONFLICT_PKGS:
+        d = dist_map.get(pkg)
+        if d is None:
+            continue
+        record = d._path / "RECORD"
+        if record.exists():
+            continue
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet",
+                 "--break-system-packages", "--ignore-installed", pkg],
+                capture_output=True, text=True, timeout=120)
+            if r.returncode == 0:
+                fixed.append(pkg)
+        except Exception:
+            pass
+    if fixed:
+        info(f"pip: fixed missing RECORD for apt-managed package(s): {', '.join(fixed)}")
+
+
 def _phase_pip(merged: dict) -> None:
     print(f"\n{_BLD}── Phase: pip packages ───────────────────────────────{_R}")
+    _fix_apt_pip_conflicts()
     _offline_urls = merged.get("OFFLINE_BUNDLE_URLS", {})
     installed = _pip_installed()
     skipped = 0
@@ -3628,7 +3669,7 @@ def _phase_pip(merged: dict) -> None:
             r = _spin_run(spec,
                 [sys.executable, "-m", "pip", "install", "--quiet",
                  "--break-system-packages", spec],
-                capture_output=True, text=True, timeout=600)
+                capture_output=True, text=True, timeout=1200)
             _log("pip", spec, desc, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
             if r.returncode != 0 and _offline_urls:
@@ -3760,14 +3801,14 @@ def _phase_go(merged: dict) -> None:
         try:
             r = _spin_run(binary,
                 [go, "install", "-v", pkg],
-                capture_output=True, text=True, env=env, timeout=600)
+                capture_output=True, text=True, env=env, timeout=1800)
             _log("go", binary, pkg, r.returncode == 0,
                  stdout=r.stdout, stderr=r.stderr)
             if r.returncode != 0 and binary in _offline_urls:
                 warn(f"go install failed for {binary} — trying offline bundle …")
                 _install_offline_bundle_arsenal(binary, _offline_urls[binary])
         except subprocess.TimeoutExpired:
-            _log("go", binary, pkg, False, error="go install timed out after 600s")
+            _log("go", binary, pkg, False, error="go install timed out after 1800s")
             if binary in _offline_urls:
                 warn(f"go install timed out for {binary} — trying offline bundle …")
                 _install_offline_bundle_arsenal(binary, _offline_urls[binary])
@@ -3899,7 +3940,7 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                 r = subprocess.run(
                     [sys.executable, str(installer)] + extra,
                     cwd=str(install_dir),
-                    capture_output=True, text=True, timeout=600,
+                    capture_output=True, text=True, timeout=1200,
                 )
                 if r.returncode == 0:
                     ok(f"{name} post-install complete.")
@@ -3925,10 +3966,10 @@ def install_apps_phased(app_names: list, install_modes: "dict | None" = None) ->
                 _FAILURES.append({
                     "phase": "post-install",
                     "name":  name,
-                    "description": "install.py timed out after 600s",
+                    "description": "install.py timed out after 1200s",
                     "success": False,
                     "stderr": "",
-                    "error": "timed out after 600s",
+                    "error": "timed out after 1200s",
                 })
             except Exception as exc:
                 warn(f"{name} post-install error: {exc}")
