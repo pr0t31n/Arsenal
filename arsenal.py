@@ -35,6 +35,7 @@ import atexit
 import base64
 import getpass
 import select as _select
+import signal
 
 VERSION = Path(__file__).resolve().parent.joinpath("VERSION").read_text().strip()
 INSTALL_BASE = Path("/opt/pr0t31n")
@@ -1910,8 +1911,189 @@ def install_app(app: dict) -> None:
     _handle_optional_deps(app, is_update=False)
 
 
+def _find_tool_pids(app: dict) -> list[int]:
+    """Find PIDs of running processes belonging to a tool."""
+    pids: set[int] = set()
+    install_dir = str(_install_dir(app))
+    port = app.get("port")
+
+    if port:
+        try:
+            r = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in r.stdout.strip().splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pids.add(int(line))
+        except Exception:
+            pass
+
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", install_dir],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in r.stdout.strip().splitlines():
+            line = line.strip()
+            if line.isdigit():
+                pid = int(line)
+                if pid != os.getpid():
+                    pids.add(pid)
+    except Exception:
+        pass
+
+    return sorted(pids)
+
+
+def _kill_tool_processes(app: dict) -> int:
+    """Find and kill any running processes for a tool. Returns kill count."""
+    pids = _find_tool_pids(app)
+    if not pids:
+        return 0
+
+    info(f"Found {len(pids)} running process(es) for {app['name']}: {pids}")
+    killed = 0
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            info(f"  Sent SIGTERM to PID {pid}")
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            warn(f"  No permission to signal PID {pid}")
+            continue
+        killed += 1
+
+    if killed:
+        time.sleep(3)
+        for pid in pids:
+            try:
+                os.kill(pid, 0)
+                info(f"  PID {pid} still alive — sending SIGKILL")
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                pass
+
+    return killed
+
+
+def _uninstall_dep(dep: dict) -> bool:
+    """Remove a single dependency using the method it was installed with."""
+    name = dep["name"]
+    method = dep["method"]
+    pm = dep.get("pkg_manager", method)
+
+    try:
+        if method == "system":
+            if pm in ("apt", "apt-get") or shutil.which("apt-get"):
+                r = subprocess.run(
+                    ["apt-get", "remove", "-y", name],
+                    capture_output=True, text=True, timeout=120,
+                )
+                return r.returncode == 0
+            elif pm == "dnf" or shutil.which("dnf"):
+                r = subprocess.run(
+                    ["dnf", "remove", "-y", name],
+                    capture_output=True, text=True, timeout=120,
+                )
+                return r.returncode == 0
+            elif pm == "zypper" or shutil.which("zypper"):
+                r = subprocess.run(
+                    ["zypper", "remove", "-y", name],
+                    capture_output=True, text=True, timeout=120,
+                )
+                return r.returncode == 0
+        elif method == "pip":
+            pkg_name = name.split(">=")[0].split("==")[0].split("[")[0].strip()
+            r = subprocess.run(
+                [sys.executable, "-m", "pip", "uninstall", "-y",
+                 "--break-system-packages", pkg_name],
+                capture_output=True, text=True, timeout=120,
+            )
+            return r.returncode == 0
+        elif method == "go":
+            binary = Path("/usr/local/bin") / name
+            if binary.is_file() or binary.is_symlink():
+                binary.unlink()
+                return True
+            return False
+        elif method in ("brew", "brew-cask"):
+            brew = shutil.which("brew")
+            if brew:
+                r = subprocess.run(
+                    [brew, "uninstall", name],
+                    capture_output=True, text=True, timeout=120,
+                )
+                return r.returncode == 0
+        elif method == "git":
+            dep_path = Path(name) if "/" in name else None
+            if dep_path and dep_path.is_dir():
+                shutil.rmtree(dep_path)
+                return True
+    except Exception as exc:
+        warn(f"  Failed to remove {name}: {exc}")
+    return False
+
+
+def _prompt_dep_removal(app: dict) -> None:
+    """After uninstalling a tool, offer to remove its Arsenal-installed deps."""
+    tool_name = app["name"]
+    deps = _get_tool_deps(tool_name)
+    if not deps:
+        _remove_tool_deps(tool_name)
+        return
+
+    shared_set = dict(_find_shared_deps(tool_name))
+    removable = [d for d in deps if d["name"] not in shared_set]
+    shared    = [d for d in deps if d["name"] in shared_set]
+
+    if shared:
+        info(f"Shared dependencies (kept — used by other tools):")
+        for d in shared:
+            others = ", ".join(shared_set[d["name"]])
+            print(f"    {_Y}⤷{_R}  {d['name']}  ({d['method']})  "
+                  f"— also used by: {others}", flush=True)
+
+    if not removable:
+        info("No unique dependencies to remove.")
+        _remove_tool_deps(tool_name)
+        return
+
+    print(f"\n  {_BLD}Arsenal-installed dependencies for {tool_name} "
+          f"({len(removable)} removable):{_R}")
+    for d in removable:
+        print(f"    {_RD}✗{_R}  {d['name']}  ({d['method']} via {d.get('pkg_manager', d['method'])})")
+
+    try:
+        ans = input(f"\n  {_BLD}Remove these {len(removable)} "
+                    f"dependencies? [y/N]{_R} ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        ans = "n"
+
+    if ans == "y":
+        removed = 0
+        for d in removable:
+            ok_flag = _uninstall_dep(d)
+            sym = f"{_G}[+]{_R}" if ok_flag else f"{_RD}[!]{_R}"
+            status = "removed" if ok_flag else "FAILED"
+            print(f"    {sym}  {d['name']}  — {status}", flush=True)
+            if ok_flag:
+                removed += 1
+        ok(f"Removed {removed}/{len(removable)} dependencies.")
+    else:
+        info("Dependencies kept.")
+
+    _remove_tool_deps(tool_name)
+
+
 def uninstall_app(app: dict) -> None:
-    """Stop/disable service (if any), remove symlinks, delete install directory."""
+    """Stop service, kill processes, remove symlinks, delete install directory,
+    and optionally remove Arsenal-installed dependencies."""
     install_dir = _install_dir(app)
 
     # ── Service removal ──────────────────────────────────────────────────────
@@ -1931,6 +2113,11 @@ def uninstall_app(app: dict) -> None:
                 subprocess.run(["launchctl", "unload", "-w", str(plist_path)], check=False)
                 plist_path.unlink()
 
+    # ── Force-kill surviving processes ────────────────────────────────────────
+    killed = _kill_tool_processes(app)
+    if killed:
+        ok(f"Killed {killed} process(es) for {app['name']}.")
+
     # ── Symlink cleanup ───────────────────────────────────────────────────────
     bin_dir    = Path("/usr/local/bin")
     link_names = {
@@ -1949,6 +2136,9 @@ def uninstall_app(app: dict) -> None:
         ok(f"{app['name']} uninstalled.")
     else:
         warn(f"{app['name']} not found at {install_dir}.")
+
+    # ── Dependency cleanup ────────────────────────────────────────────────────
+    _prompt_dep_removal(app)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2783,7 +2973,10 @@ def _merge_app_phases(app_names: list) -> dict:
     """
     Collect and deduplicate packages from every app in app_names.
     Returns dict keyed by _PKG_VARS entries plus OFFLINE_BUNDLE_URLS.
+    Also populates _DEP_TOOL_MAP for dependency attribution tracking.
     """
+    global _DEP_TOOL_MAP
+    _DEP_TOOL_MAP = {}
     merged: dict = {k: [] for k in _PKG_VARS}
     merged["OFFLINE_BUNDLE_URLS"] = {}
     seen:   dict = {k: set() for k in _PKG_VARS}
@@ -2795,9 +2988,18 @@ def _merge_app_phases(app_names: list) -> dict:
             for item in pkgs.get(key, []):
                 norm = _normalise_pkg_item(key, item)
                 dk = norm[0] if norm else ""
-                if dk and dk not in seen[key]:
-                    seen[key].add(dk)
-                    merged[key].append(norm)
+                if dk:
+                    _DEP_TOOL_MAP.setdefault((key, dk), set()).add(name)
+                    if key == "GO_TOOLS" and len(norm) >= 2 and norm[1]:
+                        _DEP_TOOL_MAP.setdefault((key, norm[1]), set()).add(name)
+                    elif key == "GIT_TOOLS" and len(norm) >= 2 and norm[1]:
+                        _DEP_TOOL_MAP.setdefault((key, norm[1]), set()).add(name)
+                        short = Path(norm[1]).name
+                        if short:
+                            _DEP_TOOL_MAP.setdefault((key, short), set()).add(name)
+                    if dk not in seen[key]:
+                        seen[key].add(dk)
+                        merged[key].append(norm)
         merged["OFFLINE_BUNDLE_URLS"].update(_extract_offline_bundles(d))
     return merged
 
@@ -2807,6 +3009,119 @@ def _merge_app_phases(app_names: list) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 _INSTALL_LOG: list = []   # list[dict]
 _FAILURES: list = []      # list[dict] — collects failures across all paths
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependency manifest — persistent record of what Arsenal installed per tool
+# Stored OUTSIDE /opt/Arsenal so it survives directory deletion / re-pull.
+# ─────────────────────────────────────────────────────────────────────────────
+_DEP_MANIFEST_PATH = Path("/opt/pr0t31n/.arsenal/deps.json")
+
+_DEP_TOOL_MAP: dict = {}
+
+_PHASE_TO_PKG_KEYS: dict[str, set[str]] = {
+    "system":    {"APT_PACKAGES", "DNF_PACKAGES", "ZYPPER_PACKAGES"},
+    "pip":       {"PIP_PACKAGES"},
+    "go":        {"GO_TOOLS"},
+    "brew":      {"BREW_PACKAGES"},
+    "brew-cask": {"BREW_CASK_PACKAGES"},
+    "git":       {"GIT_TOOLS"},
+}
+
+_PHASE_PKG_MANAGER: dict[str, str] = {
+    "system": "apt",
+    "pip":    "pip3",
+    "go":     "go",
+    "brew":   "brew",
+    "brew-cask": "brew",
+    "git":    "git",
+}
+
+
+def _load_dep_manifest() -> dict:
+    try:
+        if _DEP_MANIFEST_PATH.is_file():
+            data = json.loads(_DEP_MANIFEST_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "tools" in data:
+                return data
+    except Exception:
+        pass
+    return {"schema_version": "1.0", "tools": {}}
+
+
+def _save_dep_manifest(manifest: dict) -> None:
+    try:
+        _DEP_MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _DEP_MANIFEST_PATH.write_text(
+            json.dumps(manifest, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        warn(f"Could not save dependency manifest: {exc}")
+
+
+def _record_dep(tool_name: str, dep_name: str, method: str,
+                pkg_manager: str) -> None:
+    m = _load_dep_manifest()
+    tool_entry = m["tools"].setdefault(tool_name, {"deps": []})
+    for d in tool_entry["deps"]:
+        if d["name"] == dep_name and d["method"] == method:
+            return
+    tool_entry["deps"].append({
+        "name":        dep_name,
+        "method":      method,
+        "pkg_manager": pkg_manager,
+        "timestamp":   datetime.datetime.now(datetime.timezone.utc)
+                       .strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    _save_dep_manifest(m)
+
+
+def _get_tool_deps(tool_name: str) -> list[dict]:
+    m = _load_dep_manifest()
+    return m["tools"].get(tool_name, {}).get("deps", [])
+
+
+def _get_all_tool_deps() -> dict:
+    return _load_dep_manifest()["tools"]
+
+
+def _remove_tool_deps(tool_name: str) -> None:
+    m = _load_dep_manifest()
+    if tool_name in m["tools"]:
+        del m["tools"][tool_name]
+        _save_dep_manifest(m)
+
+
+def _find_shared_deps(tool_name: str) -> list[tuple[str, list[str]]]:
+    m = _load_dep_manifest()
+    my_deps = m["tools"].get(tool_name, {}).get("deps", [])
+    shared = []
+    for dep in my_deps:
+        others = []
+        for other_name, other_entry in m["tools"].items():
+            if other_name == tool_name:
+                continue
+            for od in other_entry.get("deps", []):
+                if od["name"] == dep["name"] and od["method"] == dep["method"]:
+                    others.append(other_name)
+                    break
+        if others:
+            shared.append((dep["name"], others))
+    return shared
+
+
+def _pkg_manager_for_phase(phase: str, os_type: str = "") -> str:
+    if phase == "system":
+        if os_type in ("kali", "ubuntu", "linux"):
+            return "apt"
+        if os_type == "rhel":
+            return "dnf"
+        if os_type == "suse":
+            return "zypper"
+        if os_type == "macos":
+            return "brew"
+        return "apt"
+    return _PHASE_PKG_MANAGER.get(phase, phase)
 
 
 def _dpkg_lock_recover(env: dict) -> None:
@@ -2851,14 +3166,30 @@ def _log(phase: str, name: str, description: str,
     print(f"  {sym}  {name}  —  {description[:60]}", flush=True)
     if not success and (stderr or error):
         snippet = (stderr or error).strip().splitlines()
-        # Show first line (Ruby/brew errors put the message there) + last 3 for context.
-        # For Python-style tracebacks the error is at the end, so the last 3 still apply.
         if len(snippet) > 4:
             lines = [snippet[0], "  …"] + snippet[-3:]
         else:
             lines = snippet
         for ln in lines:
             print(f"      {_RD}{ln}{_R}", flush=True)
+
+    if success and _DEP_TOOL_MAP and phase in _PHASE_TO_PKG_KEYS:
+        skip = stdout and "skipped" in stdout.lower()
+        if not skip:
+            os_type = detect_os()
+            pm = _pkg_manager_for_phase(phase, os_type)
+            for key in _PHASE_TO_PKG_KEYS[phase]:
+                tools = _DEP_TOOL_MAP.get((key, name))
+                if tools:
+                    dep_id = name
+                    if phase == "git":
+                        for mk, mv in _DEP_TOOL_MAP.items():
+                            if mk[0] == key and "/" in mk[1] and mv == tools:
+                                dep_id = mk[1]
+                                break
+                    for tool in tools:
+                        _record_dep(tool, dep_id, phase, pm)
+                    break
 
 
 def _print_failure_summary() -> None:
