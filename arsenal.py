@@ -977,6 +977,158 @@ def check_root() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# System prerequisite check — runs before anything else
+# ─────────────────────────────────────────────────────────────────────────────
+_PREREQS_CRITICAL = [
+    # (binary, version_flag, apt_pkg, brew_pkg, dnf_pkg, description)
+    ("git",     "--version",  "git",           "git",    "git",           "version control — required for all installs"),
+    ("curl",    "--version",  "curl",           "curl",   "curl",          "HTTP client — used by installers"),
+    ("pip3",    "--version",  "python3-pip",    None,     "python3-pip",   "Python package manager"),
+    ("openssl", "version",    "openssl",        "openssl","openssl",       "TLS/crypto — required by Flask apps"),
+]
+_PREREQS_BUILD = [
+    ("go",      "version",    "golang",         "go",     "golang",        "Go compiler — needed by Mole, Gearbox deps"),
+    ("gcc",     "--version",  "gcc",            None,     "gcc",           "C compiler — needed by some pip packages"),
+    ("make",    "--version",  "make",           None,     "make",          "build tool — needed by some native deps"),
+    ("gem",     "--version",  "ruby",           "ruby",   "ruby",          "Ruby gems — needed by WPScan, BundleAudit"),
+    ("npm",     "--version",  "npm",            "node",   "npm",           "Node.js — needed by some web tools"),
+    ("cargo",   "--version",  "cargo",          "rust",   "cargo",         "Rust — needed by RustScan, feroxbuster"),
+]
+
+def _get_version(binary: str, flag: str) -> "str | None":
+    path = shutil.which(binary)
+    if not path:
+        return None
+    try:
+        r = subprocess.run([path, flag], capture_output=True, text=True, timeout=10)
+        out = (r.stdout or r.stderr or "").strip()
+        m = re.search(r'(\d+\.\d+[\w.+-]*)', out)
+        return m.group(1) if m else "installed"
+    except Exception:
+        return "installed"
+
+def _get_arch() -> str:
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "amd64"
+    if machine in ("aarch64", "arm64"):
+        return "arm64"
+    if machine.startswith("arm"):
+        return "armv7"
+    return machine
+
+def _install_prereq(pkg_apt: "str|None", pkg_brew: "str|None", pkg_dnf: "str|None",
+                    os_type: str, binary: str) -> bool:
+    if os_type == "macos":
+        brew = shutil.which("brew")
+        if not brew or not pkg_brew:
+            return False
+        # pip3 on macOS: use ensurepip, not brew
+        if binary == "pip3":
+            r = subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode == 0 and shutil.which("pip3"):
+                return True
+            return False
+        r = subprocess.run([brew, "install", pkg_brew],
+                           capture_output=True, text=True, timeout=300)
+        return r.returncode == 0
+    elif os_type in ("kali", "ubuntu", "linux"):
+        pm = shutil.which("apt-get") or shutil.which("apt")
+        if not pm or not pkg_apt:
+            return False
+        subprocess.run([pm, "update", "-qq"], capture_output=True, timeout=120)
+        r = subprocess.run([pm, "install", "-y", pkg_apt],
+                           capture_output=True, text=True, timeout=300)
+        return r.returncode == 0
+    elif os_type == "rhel":
+        pm = shutil.which("dnf") or shutil.which("yum")
+        if not pm or not pkg_dnf:
+            return False
+        r = subprocess.run([pm, "install", "-y", pkg_dnf],
+                           capture_output=True, text=True, timeout=300)
+        return r.returncode == 0
+    elif os_type == "suse":
+        pm = shutil.which("zypper")
+        if not pm or not pkg_dnf:
+            return False
+        r = subprocess.run([pm, "install", "-y", pkg_dnf],
+                           capture_output=True, text=True, timeout=300)
+        return r.returncode == 0
+    return False
+
+def check_prerequisites() -> None:
+    os_type = detect_os()
+    arch = _get_arch()
+    print(f"\n{_BLD}── System Prerequisites ─────────────────────────────────────{_R}")
+    print(f"  OS: {os_type}   Arch: {arch}   Python: {platform.python_version()}\n")
+
+    missing_critical: list[tuple] = []
+    missing_build: list[tuple] = []
+
+    for group, label, missing_list in [
+        (_PREREQS_CRITICAL, "Core (required)", missing_critical),
+        (_PREREQS_BUILD, "Build tools (optional)", missing_build),
+    ]:
+        print(f"  {_BLD}{label}:{_R}")
+        for binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc in group:
+            ver = _get_version(binary, flag)
+            path = shutil.which(binary) or ""
+            if ver:
+                print(f"    {_G}✓{_R} {binary:<10} {_DIM}{ver:<20}{_R} {path}")
+            else:
+                print(f"    {_RD}✗{_R} {binary:<10} {_RD}not found{_R}             {_DIM}{desc}{_R}")
+                missing_list.append((binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc))
+        print()
+
+    if not missing_critical and not missing_build:
+        ok("All prerequisites satisfied.\n")
+        return
+
+    # Handle critical missing
+    if missing_critical:
+        err(f"{len(missing_critical)} critical prerequisite(s) missing — Arsenal cannot install tools without them.")
+        print()
+        for binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc in missing_critical:
+            info(f"Installing {binary} ({desc})…")
+            if _install_prereq(pkg_apt, pkg_brew, pkg_dnf, os_type, binary):
+                ver = _get_version(binary, flag)
+                ok(f"{binary} installed → {ver}")
+            else:
+                err(f"Could not install {binary} automatically.")
+                if os_type == "macos":
+                    hint = f"brew install {pkg_brew}" if pkg_brew else f"Install {binary} manually"
+                elif os_type in ("kali", "ubuntu", "linux"):
+                    hint = f"apt-get install -y {pkg_apt}" if pkg_apt else f"Install {binary} manually"
+                else:
+                    hint = f"Install {binary} via your package manager"
+                print(f"    {_Y}Manual fix:{_R}  {hint}")
+        print()
+        # Re-check critical after install attempts
+        still_missing = [b for b, *_ in missing_critical if not shutil.which(b)]
+        if still_missing:
+            err(f"Cannot continue — missing: {', '.join(still_missing)}")
+            err("Fix the above and re-run Arsenal.")
+            sys.exit(1)
+        ok("All critical prerequisites now satisfied.\n")
+
+    # Handle optional build tools
+    if missing_build:
+        warn(f"{len(missing_build)} build tool(s) not found — some tools may fail to install.")
+        resp = _clean_input(f"  {_BLD}Install missing build tools now? [Y/n]{_R} ").strip().lower()
+        if resp in ("", "y", "yes"):
+            for binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc in missing_build:
+                info(f"Installing {binary}…")
+                if _install_prereq(pkg_apt, pkg_brew, pkg_dnf, os_type, binary):
+                    ver = _get_version(binary, flag)
+                    ok(f"{binary} installed → {ver}")
+                else:
+                    warn(f"Could not install {binary} — some tools needing it may fail.")
+        else:
+            info("Skipping build tools — you can install them later.\n")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Version helpers
 # ─────────────────────────────────────────────────────────────────────────────
 def _version_gt(v1: str, v2: str) -> bool:
@@ -3988,6 +4140,9 @@ def main() -> None:
     print(f"{_BLD}  Tool installer and manager  ·  Arsenal v{VERSION}{_R}")
     print(f"  Platform: {SYSTEM}   Install base: {INSTALL_BASE}\n")
 
+    # Check system prerequisites (git, pip3, curl, go, etc.)
+    check_prerequisites()
+
     # Optional --token flag for authenticated GitHub access (public repos don't need it)
     _parse_token_flag()
 
@@ -4092,6 +4247,13 @@ def _cli_main() -> int:
     if not (args.json and args.non_interactive and args.command):
         return -1   # signal: fall through to interactive
     out: dict = {"command": args.command, "arsenal_version": VERSION}
+    # Non-interactive prereq check — report missing critical tools in JSON
+    _prereq_missing = [b for b, _, _, _, _, _ in _PREREQS_CRITICAL if not shutil.which(b)]
+    if _prereq_missing and args.command in ("install", "upgrade"):
+        out.update({"ok": False,
+                    "error": f"missing critical prerequisites: {', '.join(_prereq_missing)}",
+                    "missing_prereqs": _prereq_missing})
+        print(_json.dumps(out)); return 4
     try:
         if args.command == "status":
             status = load_status()
