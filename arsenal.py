@@ -1019,44 +1019,51 @@ def _get_arch() -> str:
     return machine
 
 def _install_prereq(pkg_apt: "str|None", pkg_brew: "str|None", pkg_dnf: "str|None",
-                    os_type: str, binary: str) -> bool:
+                    os_type: str, binary: str) -> "tuple[bool, str]":
+    """Install a prerequisite. Returns (success, error_detail)."""
+    def _err(r: "subprocess.CompletedProcess") -> str:
+        out = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()
+        lines = [l for l in out.splitlines() if l.strip()]
+        return "\n".join(lines[-6:]) if lines else f"exit code {r.returncode}"
+
     if os_type == "macos":
         brew = shutil.which("brew")
         if not brew or not pkg_brew:
-            return False
-        # pip3 on macOS: use ensurepip, not brew
+            return False, "no package manager available (brew not found)" if not brew else "no brew package defined"
         if binary == "pip3":
             r = subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"],
                                capture_output=True, text=True, timeout=120)
             if r.returncode == 0 and shutil.which("pip3"):
-                return True
-            return False
+                return True, ""
+            return False, _err(r)
         r = subprocess.run([brew, "install", pkg_brew],
                            capture_output=True, text=True, timeout=300)
-        return r.returncode == 0
+        return (r.returncode == 0, "" if r.returncode == 0 else _err(r))
     elif os_type in ("kali", "ubuntu", "linux"):
         pm = shutil.which("apt-get") or shutil.which("apt")
         if not pm or not pkg_apt:
-            return False
-        subprocess.run([pm, "update", "-qq"], capture_output=True, timeout=120)
+            return False, "no package manager available" if not pm else "no apt package defined"
+        upd = subprocess.run([pm, "update", "-qq"], capture_output=True, text=True, timeout=120)
+        if upd.returncode != 0:
+            return False, f"apt update failed:\n{_err(upd)}"
         r = subprocess.run([pm, "install", "-y", pkg_apt],
                            capture_output=True, text=True, timeout=300)
-        return r.returncode == 0
+        return (r.returncode == 0, "" if r.returncode == 0 else _err(r))
     elif os_type == "rhel":
         pm = shutil.which("dnf") or shutil.which("yum")
         if not pm or not pkg_dnf:
-            return False
+            return False, "no package manager available" if not pm else "no dnf/yum package defined"
         r = subprocess.run([pm, "install", "-y", pkg_dnf],
                            capture_output=True, text=True, timeout=300)
-        return r.returncode == 0
+        return (r.returncode == 0, "" if r.returncode == 0 else _err(r))
     elif os_type == "suse":
         pm = shutil.which("zypper")
         if not pm or not pkg_dnf:
-            return False
+            return False, "no package manager available" if not pm else "no zypper package defined"
         r = subprocess.run([pm, "install", "-y", pkg_dnf],
                            capture_output=True, text=True, timeout=300)
-        return r.returncode == 0
-    return False
+        return (r.returncode == 0, "" if r.returncode == 0 else _err(r))
+    return False, f"unsupported OS type: {os_type}"
 
 def check_prerequisites() -> None:
     os_type = detect_os()
@@ -1092,11 +1099,15 @@ def check_prerequisites() -> None:
         print()
         for binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc in missing_critical:
             info(f"Installing {binary} ({desc})…")
-            if _install_prereq(pkg_apt, pkg_brew, pkg_dnf, os_type, binary):
+            ok_flag, detail = _install_prereq(pkg_apt, pkg_brew, pkg_dnf, os_type, binary)
+            if ok_flag:
                 ver = _get_version(binary, flag)
                 ok(f"{binary} installed → {ver}")
             else:
                 err(f"Could not install {binary} automatically.")
+                if detail:
+                    for dl in detail.splitlines():
+                        print(f"    {_DIM}{dl}{_R}")
                 if os_type == "macos":
                     hint = f"brew install {pkg_brew}" if pkg_brew else f"Install {binary} manually"
                 elif os_type in ("kali", "ubuntu", "linux"):
@@ -1120,11 +1131,15 @@ def check_prerequisites() -> None:
         if resp in ("", "y", "yes"):
             for binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc in missing_build:
                 info(f"Installing {binary}…")
-                if _install_prereq(pkg_apt, pkg_brew, pkg_dnf, os_type, binary):
+                ok_flag, detail = _install_prereq(pkg_apt, pkg_brew, pkg_dnf, os_type, binary)
+                if ok_flag:
                     ver = _get_version(binary, flag)
                     ok(f"{binary} installed → {ver}")
                 else:
                     warn(f"Could not install {binary} — some tools needing it may fail.")
+                    if detail:
+                        for dl in detail.splitlines():
+                            print(f"    {_DIM}{dl}{_R}")
         else:
             info("Skipping build tools — you can install them later.\n")
 
