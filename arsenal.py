@@ -1018,6 +1018,34 @@ def _get_arch() -> str:
         return "armv7"
     return machine
 
+def _install_rustup() -> "tuple[bool, str]":
+    """Install Rust toolchain via rustup (works as root on all platforms)."""
+    if shutil.which("cargo"):
+        return True, ""
+    env = dict(os.environ)
+    if os.geteuid() == 0:
+        env.setdefault("CARGO_HOME", "/usr/local/cargo")
+        env.setdefault("RUSTUP_HOME", "/usr/local/rustup")
+    try:
+        r = subprocess.run(
+            ["sh", "-c",
+             "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"],
+            capture_output=True, text=True, timeout=300, env=env)
+    except subprocess.TimeoutExpired:
+        return False, "rustup install timed out (300s)"
+    if r.returncode != 0:
+        out = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()
+        lines = [l for l in out.splitlines() if l.strip()]
+        return False, "\n".join(lines[-6:]) if lines else f"exit code {r.returncode}"
+    cargo_home = env.get("CARGO_HOME", str(Path.home() / ".cargo"))
+    cargo_bin = str(Path(cargo_home) / "bin")
+    if cargo_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = f"{cargo_bin}:{os.environ.get('PATH', '')}"
+    if shutil.which("cargo"):
+        return True, ""
+    return False, "rustup completed but cargo not found on PATH"
+
+
 def _install_prereq(pkg_apt: "str|None", pkg_brew: "str|None", pkg_dnf: "str|None",
                     os_type: str, binary: str) -> "tuple[bool, str]":
     """Install a prerequisite. Returns (success, error_detail)."""
@@ -1025,6 +1053,9 @@ def _install_prereq(pkg_apt: "str|None", pkg_brew: "str|None", pkg_dnf: "str|Non
         out = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()
         lines = [l for l in out.splitlines() if l.strip()]
         return "\n".join(lines[-6:]) if lines else f"exit code {r.returncode}"
+
+    if binary == "cargo":
+        return _install_rustup()
 
     if os_type == "macos":
         brew = shutil.which("brew")
@@ -1036,8 +1067,10 @@ def _install_prereq(pkg_apt: "str|None", pkg_brew: "str|None", pkg_dnf: "str|Non
             if r.returncode == 0 and shutil.which("pip3"):
                 return True, ""
             return False, _err(r)
-        r = subprocess.run([brew, "install", pkg_brew],
-                           capture_output=True, text=True, timeout=300)
+        cmd = _brew_cmd(brew, "install", pkg_brew)
+        if cmd is None:
+            return False, "running as root with no resolvable non-root user — cannot run brew"
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         return (r.returncode == 0, "" if r.returncode == 0 else _err(r))
     elif os_type in ("kali", "ubuntu", "linux"):
         pm = shutil.which("apt-get") or shutil.which("apt")
@@ -1108,7 +1141,9 @@ def check_prerequisites() -> None:
                 if detail:
                     for dl in detail.splitlines():
                         print(f"    {_DIM}{dl}{_R}")
-                if os_type == "macos":
+                if binary == "cargo":
+                    hint = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+                elif os_type == "macos":
                     hint = f"brew install {pkg_brew}" if pkg_brew else f"Install {binary} manually"
                 elif os_type in ("kali", "ubuntu", "linux"):
                     hint = f"apt-get install -y {pkg_apt}" if pkg_apt else f"Install {binary} manually"
