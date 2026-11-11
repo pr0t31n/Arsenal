@@ -1605,10 +1605,15 @@ def restart_app(app: dict) -> bool:
             _write_systemd_unit(app)
             svc_file = Path(f"/etc/systemd/system/{svc}.service")
             if svc_file.exists():
-                r = subprocess.run(
-                    ["systemctl", "restart", svc],
-                    check=False, timeout=20,
-                )
+                try:
+                    r = subprocess.run(
+                        ["systemctl", "restart", svc],
+                        check=False, timeout=90,
+                    )
+                except subprocess.TimeoutExpired:
+                    warn(f"systemctl restart {svc} timed out (90s) — service may "
+                         "still be starting. Check: systemctl status {svc}")
+                    return True
                 if r.returncode == 0:
                     ok(f"{name} restarted via systemctl.")
                     return True
@@ -1623,12 +1628,18 @@ def restart_app(app: dict) -> bool:
             # Always (re)write the plist so paths stay anchored to INSTALL_BASE
             _write_plist(app)
             if plist_path.exists():
-                # Full unload/load cycle — stop/start only suspends the process;
-                # unload removes it from launchd so load re-reads the plist.
-                subprocess.run(["launchctl", "unload", "-w", str(plist_path)],
-                               check=False, timeout=10)
-                r = subprocess.run(["launchctl", "load",  "-w", str(plist_path)],
-                                   check=False, timeout=10)
+                try:
+                    subprocess.run(["launchctl", "unload", "-w", str(plist_path)],
+                                   check=False, timeout=30)
+                except subprocess.TimeoutExpired:
+                    warn(f"launchctl unload timed out for {name}")
+                try:
+                    r = subprocess.run(["launchctl", "load",  "-w", str(plist_path)],
+                                       check=False, timeout=30)
+                except subprocess.TimeoutExpired:
+                    warn(f"launchctl load timed out for {name} — service may "
+                         "still be starting.")
+                    return True
                 if r.returncode == 0:
                     ok(f"{name} restarted via launchctl (unload → load).")
                     return True
