@@ -996,8 +996,23 @@ _PREREQS_BUILD = [
     ("cargo",   "--version",  "cargo",          "rust",   "cargo",         "Rust — needed by RustScan, feroxbuster"),
 ]
 
+_KNOWN_BINARY_PATHS: "dict[str, list[str]]" = {
+    "cargo": ["/usr/local/cargo/bin/cargo", str(Path.home() / ".cargo/bin/cargo")],
+    "rustc": ["/usr/local/cargo/bin/rustc", str(Path.home() / ".cargo/bin/rustc")],
+    "go":    ["/usr/local/go/bin/go"],
+}
+
+def _find_binary(name: str) -> "str | None":
+    p = shutil.which(name)
+    if p:
+        return p
+    for candidate in _KNOWN_BINARY_PATHS.get(name, []):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
 def _get_version(binary: str, flag: str) -> "str | None":
-    path = shutil.which(binary)
+    path = _find_binary(binary)
     if not path:
         return None
     try:
@@ -1020,7 +1035,7 @@ def _get_arch() -> str:
 
 def _install_rustup() -> "tuple[bool, str]":
     """Install Rust toolchain via rustup (works as root on all platforms)."""
-    if shutil.which("cargo"):
+    if _find_binary("cargo"):
         return True, ""
     env = dict(os.environ)
     if os.geteuid() == 0:
@@ -1041,7 +1056,7 @@ def _install_rustup() -> "tuple[bool, str]":
     cargo_bin = str(Path(cargo_home) / "bin")
     if cargo_bin not in os.environ.get("PATH", ""):
         os.environ["PATH"] = f"{cargo_bin}:{os.environ.get('PATH', '')}"
-    if shutil.which("cargo"):
+    if _find_binary("cargo"):
         return True, ""
     return False, "rustup completed but cargo not found on PATH"
 
@@ -1114,7 +1129,7 @@ def check_prerequisites() -> None:
         print(f"  {_BLD}{label}:{_R}")
         for binary, flag, pkg_apt, pkg_brew, pkg_dnf, desc in group:
             ver = _get_version(binary, flag)
-            path = shutil.which(binary) or ""
+            path = _find_binary(binary) or ""
             if ver:
                 print(f"    {_G}✓{_R} {binary:<10} {_DIM}{ver:<20}{_R} {path}")
             else:
@@ -1152,7 +1167,7 @@ def check_prerequisites() -> None:
                 print(f"    {_Y}Manual fix:{_R}  {hint}")
         print()
         # Re-check critical after install attempts
-        still_missing = [b for b, *_ in missing_critical if not shutil.which(b)]
+        still_missing = [b for b, *_ in missing_critical if not _find_binary(b)]
         if still_missing:
             err(f"Cannot continue — missing: {', '.join(still_missing)}")
             err("Fix the above and re-run Arsenal.")
@@ -4681,7 +4696,7 @@ def _cli_main() -> int:
         return -1   # signal: fall through to interactive
     out: dict = {"command": args.command, "arsenal_version": VERSION}
     # Non-interactive prereq check — report missing critical tools in JSON
-    _prereq_missing = [b for b, _, _, _, _, _ in _PREREQS_CRITICAL if not shutil.which(b)]
+    _prereq_missing = [b for b, _, _, _, _, _ in _PREREQS_CRITICAL if not _find_binary(b)]
     if _prereq_missing and args.command in ("install", "upgrade"):
         out.update({"ok": False,
                     "error": f"missing critical prerequisites: {', '.join(_prereq_missing)}",
