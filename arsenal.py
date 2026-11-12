@@ -1328,6 +1328,10 @@ def get_github_version(app: dict) -> Optional[str]:
                     ver = base64.b64decode(content).decode("utf-8", errors="replace").strip()
                     if ver:
                         return ver
+        except urllib.error.HTTPError as he:
+            if he.code == 403:
+                warn(f"GitHub API rate limit reached checking {repo} — skipping remaining API checks")
+                break
         except Exception:
             pass
 
@@ -1343,6 +1347,10 @@ def get_github_version(app: dict) -> Optional[str]:
                 ver = r.read().decode("utf-8", errors="replace").strip()
                 if ver:
                     return ver
+        except urllib.error.HTTPError as he:
+            if he.code == 403:
+                warn(f"GitHub raw rate limit reached checking {repo} — version unknown")
+                break
         except Exception:
             pass
 
@@ -2890,7 +2898,8 @@ def _curses_menu(
                 if can_upgrade:
                     _upg = [n for n in checked_names
                             if status[n]["installed"]
-                            and status[n].get("needs_update")]
+                            and _version_gt(status[n].get("github_ver") or "",
+                                            status[n].get("local_ver") or "")]
                     return {"action": "upgrade", "checked": _upg}
             elif cursor == ROW_PUSH:
                 if can_push:
@@ -2930,7 +2939,8 @@ def _curses_menu(
             if can_upgrade:
                 _upg = [n for n in checked_names
                         if status[n]["installed"]
-                        and status[n].get("needs_update")]
+                        and _version_gt(status[n].get("github_ver") or "",
+                                        status[n].get("local_ver") or "")]
                 return {"action": "upgrade", "checked": _upg}
 
         elif key == ord("p"):
@@ -4380,9 +4390,15 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
     if checked:
         _names = set(checked)
         outdated = [a for a in APPS
-                    if a["name"] in _names and status[a["name"]]["needs_update"]]
+                    if a["name"] in _names
+                    and status[a["name"]]["installed"]
+                    and _version_gt(status[a["name"]].get("github_ver") or "",
+                                    status[a["name"]].get("local_ver") or "")]
     else:
-        outdated = [a for a in APPS if status[a["name"]]["needs_update"]]
+        outdated = [a for a in APPS
+                    if status[a["name"]]["installed"]
+                    and _version_gt(status[a["name"]].get("github_ver") or "",
+                                    status[a["name"]].get("local_ver") or "")]
     if not outdated:
         ok("All installed apps are up to date.")
         return
@@ -4429,9 +4445,15 @@ def _do_upgrade(status: dict, checked: "list[str] | None" = None) -> None:
         extra = list(skip_flags)
         if name in _modes:
             extra.append(f"--mode={_modes[name]}")
+        _prev_ver = status[name].get("local_ver")
         _update_app(app, installer_args=extra)
-        status[name]["local_ver"]    = get_local_version(app)
-        status[name]["needs_update"] = False
+        status[name]["local_ver"] = get_local_version(app)
+        _new_ver = status[name]["local_ver"]
+        if _new_ver and _new_ver != _prev_ver:
+            status[name]["needs_update"] = False
+        else:
+            _gv = status[name].get("github_ver") or ""
+            status[name]["needs_update"] = _version_gt(_gv, _new_ver or "")
     _print_failure_summary()
     ok("Upgrade complete.")
 
@@ -4669,7 +4691,7 @@ def main() -> None:
                     status[_name]["github_ver"] = _gv
                     _lv = status[_name].get("local_ver")
                     status[_name]["needs_update"] = bool(
-                        _lv and _gv and _lv not in ("unknown", _gv)
+                        _lv and _gv and _version_gt(_gv, _lv)
                     )
             _clean_input(f"\n{_BLD}  Press Enter to return to menu…{_R} ")
 
