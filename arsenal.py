@@ -1517,19 +1517,56 @@ def get_service_status(app: dict) -> str:
     return "unknown"
 
 
+def _parse_version_from_service_log(app: dict) -> str:
+    """Extract the last startup version from the service stdout log.
+
+    Looks for the pattern '<Name> v<X.Y.Z>' (emitted by every pr0t31n
+    Flask app at startup) in the service log and returns the last match.
+    Never reads the VERSION file on disk — that can be newer than what
+    the running process loaded.
+    """
+    import re
+    name = app.get("name", "")
+    if not name:
+        return ""
+    pat = re.compile(rf"{re.escape(name)}\s+v(\d+\.\d+\.\d+)", re.IGNORECASE)
+    last = ""
+    try:
+        if SYSTEM == "Darwin":
+            log_path = Path(f"/var/log/pr0t31n-{name.lower()}.log")
+            if log_path.is_file():
+                for line in log_path.read_text(errors="replace").splitlines():
+                    m = pat.search(line)
+                    if m:
+                        last = m.group(1)
+        elif SYSTEM == "Linux" and shutil.which("journalctl"):
+            svc = app.get("service", "")
+            if svc:
+                r = subprocess.run(
+                    ["journalctl", "-u", svc, "--no-pager", "-n", "200",
+                     "--output", "cat"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for line in r.stdout.splitlines():
+                    m = pat.search(line)
+                    if m:
+                        last = m.group(1)
+    except Exception:
+        pass
+    return last
+
+
 def get_running_version(app: dict) -> str:
     """Return the running version of a Flask app.
 
     Resolution order:
       1. HTTP probe of /api/nexus-status (preferred — confirms the actual
          live process is responsive on the configured port).
-      2. systemctl is-active <svc>: if the unit is active, the running
-         process loaded the same files on disk as the installed copy, so
-         the local VERSION constant is what's running. Useful when an app
-         has no /api/nexus-status endpoint, when the port is bound only
-         to a UNIX socket / reverse-proxy, or when TLS configuration
-         breaks the probe.
-      3. Empty string if neither path yields a version.
+      2. Parse the service stdout log for the last startup version line.
+         This reflects what the process actually loaded, not what is on
+         disk now.
+      3. 'ERROR' if the service is active but neither probe returned a
+         version. Empty string if the service is not running.
     """
     # Step 1: HTTP probe
     if app.get("flask") and app.get("port"):
@@ -1551,37 +1588,34 @@ def get_running_version(app: dict) -> str:
             except Exception:
                 pass
 
-    # Step 2: systemctl / launchctl fallback — if the service is active,
-    # the running version IS the installed version (systemd loaded the
-    # same files on disk). Return the bare version string (no source-of-
-    # truth suffix — that breaks column-width alignment in the curses
-    # status table and was operator-flagged as noise).
+    # Step 2: check if service is active, then parse its log
     svc = app.get("service")
-    if not svc:
-        return ""
+    is_active = False
     try:
         if SYSTEM == "Linux" and shutil.which("systemctl"):
             r = subprocess.run(
-                ["systemctl", "is-active", svc],
+                ["systemctl", "is-active", svc or ""],
                 capture_output=True, text=True, timeout=4,
             )
-            if r.stdout.strip() == "active":
-                lv = get_local_version(app)
-                if lv:
-                    return lv
+            is_active = r.stdout.strip() == "active"
         elif SYSTEM == "Darwin":
             label = f"com.pr0t31n.{app['name'].lower()}"
             r = subprocess.run(
                 ["launchctl", "list", label],
                 capture_output=True, text=True, timeout=4,
             )
-            if r.returncode == 0:
-                lv = get_local_version(app)
-                if lv:
-                    return lv
+            is_active = r.returncode == 0
     except Exception:
         pass
-    return ""
+
+    if not is_active:
+        return ""
+
+    log_ver = _parse_version_from_service_log(app)
+    if log_ver:
+        return log_ver
+
+    return "ERROR"
 
 
 
