@@ -1529,7 +1529,7 @@ def _parse_version_from_service_log(app: dict) -> str:
     name = app.get("name", "")
     if not name:
         return ""
-    pat = re.compile(rf"{re.escape(name)}\s+v(\d+\.\d+\.\d+)", re.IGNORECASE)
+    pat = re.compile(rf"(?:^|\s){re.escape(name)}\b.*?v(\d+\.\d+\.\d+)", re.IGNORECASE)
     last = ""
     try:
         if SYSTEM == "Darwin":
