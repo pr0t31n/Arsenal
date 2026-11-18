@@ -1301,10 +1301,8 @@ def _check_github_connection() -> None:
 def _get_github_version_git(app: dict) -> Optional[str]:
     """Read VERSION from the remote via git (zero API quota).
 
-    For installed repos, runs ``git ls-remote`` to get the HEAD commit, then
-    ``git fetch origin <branch> -- VERSION`` + ``git show`` to read the file.
-    Much cheaper: uses git credentials already embedded by _authed_url, does
-    not consume any GitHub API calls.
+    Fetches the remote branch first so origin/<branch> reflects the actual
+    remote HEAD, then reads VERSION from that ref.
     """
     install_dir = _install_dir(app)
     if not install_dir.is_dir() or not (install_dir / ".git").exists():
@@ -1314,16 +1312,6 @@ def _get_github_version_git(app: dict) -> Optional[str]:
     if askpass:
         git_env["GIT_ASKPASS"] = askpass
         git_env["GIT_TERMINAL_PROMPT"] = "0"
-    for branch in ("main", "master"):
-        try:
-            r = subprocess.run(
-                ["git", "-C", str(install_dir), "show", f"origin/{branch}:VERSION"],
-                capture_output=True, text=True, timeout=10, env=git_env,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
-        except Exception:
-            pass
     for branch in ("main", "master"):
         try:
             subprocess.run(
