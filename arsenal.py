@@ -68,6 +68,9 @@ _DIM = "\033[2m"
 # ─────────────────────────────────────────────────────────────────────────────
 _GH_CREDS: dict        = {"user": "", "token": ""}
 _ASKPASS_PATH: list    = [None]   # mutable box so atexit can see it
+_GH_VERSION_CACHE: dict = {}      # repo → (version_str, timestamp)
+_GH_RATE_LIMITED: list  = [False] # mutable flag — set True on first 403
+_GH_CACHE_TTL: int      = 300     # 5 min
 
 
 def _read_token_from_tty(prompt: str) -> str:
@@ -1295,15 +1298,52 @@ def _check_github_connection() -> None:
         warn(f"GitHub credential check failed: {type(e).__name__}: {e}")
 
 
-def get_github_version(app: dict) -> Optional[str]:
-    """Read the VERSION file from GitHub.
+def _get_github_version_git(app: dict) -> Optional[str]:
+    """Read VERSION from the remote via git (zero API quota).
 
-    Strategy (in order):
-      1. Contents API (api.github.com) — no CDN cache, works with or without
-         a token (unauthenticated gets 60 req/hr which is enough for status).
-      2. raw.githubusercontent.com — CDN-cached up to 5 min; used as fallback
-         only when the API is unreachable or rate-limited.
+    For installed repos, runs ``git ls-remote`` to get the HEAD commit, then
+    ``git fetch origin <branch> -- VERSION`` + ``git show`` to read the file.
+    Much cheaper: uses git credentials already embedded by _authed_url, does
+    not consume any GitHub API calls.
     """
+    install_dir = _install_dir(app)
+    if not install_dir.is_dir() or not (install_dir / ".git").exists():
+        return None
+    git_env = dict(os.environ)
+    askpass = _create_askpass()
+    if askpass:
+        git_env["GIT_ASKPASS"] = askpass
+        git_env["GIT_TERMINAL_PROMPT"] = "0"
+    for branch in ("main", "master"):
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(install_dir), "show", f"origin/{branch}:VERSION"],
+                capture_output=True, text=True, timeout=10, env=git_env,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+        except Exception:
+            pass
+    for branch in ("main", "master"):
+        try:
+            subprocess.run(
+                ["git", "-C", str(install_dir), "fetch", "origin", branch,
+                 "--depth=1", "--quiet"],
+                capture_output=True, timeout=15, env=git_env,
+            )
+            r = subprocess.run(
+                ["git", "-C", str(install_dir), "show", f"origin/{branch}:VERSION"],
+                capture_output=True, text=True, timeout=10, env=git_env,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+        except Exception:
+            pass
+    return None
+
+
+def _get_github_version_api(app: dict) -> Optional[str]:
+    """Read VERSION via GitHub REST API (Contents API + raw fallback)."""
     repo = app["repo"]
     token = _GH_CREDS.get("token", "")
     _cb = str(int(time.time() * 1000))
@@ -1330,7 +1370,8 @@ def get_github_version(app: dict) -> Optional[str]:
                         return ver
         except urllib.error.HTTPError as he:
             if he.code == 403:
-                warn(f"GitHub API rate limit reached checking {repo} — skipping remaining API checks")
+                _GH_RATE_LIMITED[0] = True
+                warn(f"GitHub API rate-limited checking {repo} — switching to git-only for remaining tools")
                 break
         except Exception:
             pass
@@ -1349,12 +1390,38 @@ def get_github_version(app: dict) -> Optional[str]:
                     return ver
         except urllib.error.HTTPError as he:
             if he.code == 403:
-                warn(f"GitHub raw rate limit reached checking {repo} — version unknown")
+                _GH_RATE_LIMITED[0] = True
                 break
         except Exception:
             pass
 
     return None
+
+
+def get_github_version(app: dict) -> Optional[str]:
+    """Read the VERSION file from GitHub with caching and rate-limit awareness.
+
+    Strategy (in order):
+      0. Return cached result if fresh (within _GH_CACHE_TTL).
+      1. For installed repos: ``git show origin/<branch>:VERSION`` (zero API
+         calls).  Falls back to a shallow fetch if origin ref is stale.
+      2. Contents API (api.github.com) — skipped when rate-limited.
+      3. raw.githubusercontent.com — CDN-cached fallback.
+    """
+    repo = app["repo"]
+    now = time.time()
+
+    cached = _GH_VERSION_CACHE.get(repo)
+    if cached and (now - cached[1]) < _GH_CACHE_TTL:
+        return cached[0]
+
+    ver = _get_github_version_git(app)
+
+    if not ver and not _GH_RATE_LIMITED[0]:
+        ver = _get_github_version_api(app)
+
+    _GH_VERSION_CACHE[repo] = (ver, now)
+    return ver
 
 
 # ─────────────────────────────────────────────────────────────────────────────
