@@ -2317,45 +2317,85 @@ def uninstall_app(app: dict) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependency resolution
 # ─────────────────────────────────────────────────────────────────────────────
+_MANDATORY_DEPS = {"Shared"}
+
+_INSTALL_LAST = {"Crucible"}
+
+
 def resolve_dependencies(
     to_install:   list[str],
     to_uninstall: list[str],
     status:       dict[str, dict],
 ) -> tuple[list[str], list[str]]:
     """
-    Ensure each Flask app being installed has AT LEAST ONE of its listed
-    `requires` tools either already installed or queued in this install
-    batch.  Older behaviour auto-dragged in EVERY required tool, which
-    over-installed Flask apps that only need a subset (e.g. the
-    Aether family — most users want one or two, not all four).
+    Resolve install dependencies and ordering.
 
-    If none of a Flask app's required tools are installed or queued, the
-    first entry in its `requires` list is auto-added so the Flask app
-    has something to drive.  Anything beyond that is left to the user.
+    Two categories of ``requires`` entries:
+
+    *Mandatory* (names in ``_MANDATORY_DEPS``, currently just Shared):
+      Must ALWAYS be installed when anything that lists them is selected.
+      If not already installed and not in the batch, the user is prompted
+      for confirmation before it is auto-added.
+
+    *Elective* (everything else):
+      At-least-one semantics — if none of the non-mandatory deps are
+      installed or queued, the first one is auto-added.
+
+    After resolution, install order is topological (deps before
+    dependents) with ``_INSTALL_LAST`` tools pushed to the end so they
+    see every other tool already in place.
 
     Warn if uninstalling something that another installed app depends on.
     Returns (ordered_install_list, uninstall_list).
     """
     install_set   = set(to_install)
     uninstall_set = set(to_uninstall)
-    added: list[str] = []
+    added: list[str]    = []
+    prompted: list[str] = []
 
     for name in list(to_install):
         deps = APP_INDEX[name].get("requires", [])
         if not deps:
             continue
-        # "Satisfied" = at least one of the required tools is already
-        # installed on the system OR was selected for install in this batch.
-        satisfied = any(
-            (d in install_set) or status.get(d, {}).get("installed")
-            for d in deps
-        )
-        if not satisfied:
-            # Auto-add the first required tool so the Flask app isn't
-            # installed against zero supported backends.
-            first = deps[0]
-            install_set.add(first)
-            added.append(first)
+
+        mandatory = [d for d in deps if d in _MANDATORY_DEPS]
+        elective  = [d for d in deps if d not in _MANDATORY_DEPS]
+
+        for d in mandatory:
+            if d in install_set or d in prompted:
+                continue
+            already_installed = status.get(d, {}).get("installed")
+            if not already_installed:
+                dependents = [n for n in to_install
+                              if d in APP_INDEX[n].get("requires", [])]
+                print()
+                warn(f"{d} is required by: {', '.join(dependents)}")
+                try:
+                    ans = input(f"  {_BLD}{d} is not installed. "
+                                f"Install it now? [Y/n]{_R} ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    ans = "y"
+                if ans in ("", "y", "yes"):
+                    install_set.add(d)
+                    prompted.append(d)
+                else:
+                    warn(f"Skipping {d} — dependent tools may not function correctly.")
+
+        if elective:
+            satisfied = any(
+                (d in install_set) or status.get(d, {}).get("installed")
+                for d in elective
+            )
+            if not satisfied:
+                first = elective[0]
+                install_set.add(first)
+                added.append(first)
+
+    if prompted:
+        print()
+        info("Adding mandatory infrastructure dependency:")
+        for a in prompted:
+            print(f"    {_G}+{_R}  {a}")
 
     if added:
         print()
@@ -2386,6 +2426,11 @@ def resolve_dependencies(
 
     for n in install_set:
         _add(n)
+
+    # Push _INSTALL_LAST tools to the end so they see all deps in place
+    tail = [n for n in ordered if n in _INSTALL_LAST]
+    head = [n for n in ordered if n not in _INSTALL_LAST]
+    ordered = head + tail
 
     return ordered, list(uninstall_set)
 
